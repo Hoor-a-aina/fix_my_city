@@ -33,10 +33,16 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+
   // ImagePicker handles both camera capture and gallery selection
   final ImagePicker _picker = ImagePicker();
+
   // Stores the currently selected/captured image for preview.
   XFile? _selectedImage;
+
+// Tracks whether the AI analysis is currently running.
+  bool _isAnalyzing = false;
+
 
   // Opens either the camera or gallery based on the supplied source.
   Future<void> _pickImage(ImageSource source) async {
@@ -52,6 +58,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _selectedImage = image;
+    });
+  }
+
+  // Starts the local analysis process.
+// Backend integration will replace this mock process later.
+  Future<void> _analyzeImage() async {
+    setState(() {
+      _isAnalyzing = true;
+    });
+
+    // Temporary delay to simulate AI analysis.
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    setState(() {
+      _isAnalyzing = false;
     });
   }
 
@@ -123,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Analyze is intentionally not connected to the backend yet.
                 // We will add the analysis flow in a later checkpoint.
                 FilledButton.icon(
-                  onPressed: () {},
+                  onPressed: _isAnalyzing ? null : _analyzeImage,
                   icon: const Icon(Icons.auto_awesome),
                   label: const Text('Analyze'),
                 ),
