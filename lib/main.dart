@@ -104,6 +104,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
       _isAnalyzing = false;
     });
+    // Opens the result screen after the mock analysis completes.
+    if (!mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AnalysisResultScreen(
+          analysis: _analysisResult!,
+        ),
+      ),
+    );
+
 
   }
 
@@ -183,57 +195,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 12),
               ],
 
-              // Displays the AI analysis result after the image is analyzed.
-              if (_analysisResult != null) ...[
-                const SizedBox(height: 24),
-
-                const Text(
-                  'AI Analysis Result',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                Text(
-                  'Category: ${_analysisResult!.category}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  'Severity: ${_analysisResult!.severity}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  'Description: ${_analysisResult!.description}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                  ),
-                ),
-                Text(
-                  'Confidence: ${(_analysisResult!.confidence * 100).toStringAsFixed(0)}%',
-                  style: const TextStyle(
-                    fontSize: 16,
-                  ),
-                ),
-                Text(
-                  'Location: ${_analysisResult!.location}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                  ),
-                ),
-
-
-              ],
-
-
               // Fixed spacing replaces Spacer because this screen now uses a scrollable Column.
               const SizedBox(height: 32),
 
@@ -275,3 +236,81 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+// Displays the AI analysis result on a dedicated screen.
+class AnalysisResultScreen extends StatelessWidget {
+  final ReportAnalysis analysis;
+
+  const AnalysisResultScreen({
+    super.key,
+    required this.analysis,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'AI Analysis Result',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Category: ${analysis.category}',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Text(
+                'Severity: ${analysis.severity}',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Text(
+                'Description: ${analysis.description}',
+                style: const TextStyle(
+                  fontSize: 16,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Text(
+                'Confidence: ${(analysis.confidence * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(
+                  fontSize: 16,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              Text(
+                'Location: ${analysis.location}',
+                style: const TextStyle(
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
