@@ -9,8 +9,11 @@ class ReportAnalysis {
   final String description;
   final double confidence;
   final String location;
+  final String id;
+
 
   const ReportAnalysis({
+    required this.id,
     required this.category,
     required this.severity,
     required this.description,
@@ -63,6 +66,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // Stores the AI analysis result after processing the image.
   ReportAnalysis? _analysisResult;
+  final List<ReportAnalysis> _submittedReports = [];
+
 
   // Opens either the camera or gallery based on the supplied source.
   Future<void> _pickImage(ImageSource source) async {
@@ -95,6 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _analysisResult = const ReportAnalysis(
+        id: 'mock-report-1',
         category: 'Pothole',
         severity: 'High',
         description: 'A large pothole is present on the road surface.',
@@ -112,9 +118,14 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (context) => AnalysisResultScreen(
           analysis: _analysisResult!,
+          onSubmit: (report) {
+            _submittedReports.add(report);
+          },
+
         ),
       ),
     );
+
 
 
   }
@@ -239,10 +250,13 @@ class _HomeScreenState extends State<HomeScreen> {
 // Displays the AI analysis result on a dedicated screen.
 class AnalysisResultScreen extends StatelessWidget {
   final ReportAnalysis analysis;
+  final void Function(ReportAnalysis) onSubmit;
+
 
   const AnalysisResultScreen({
     super.key,
     required this.analysis,
+    required this.onSubmit,
   });
 
   @override
@@ -330,12 +344,30 @@ class AnalysisResultScreen extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (context) => AnalysisResultScreen(
                         analysis: updatedAnalysis,
+                        onSubmit: onSubmit,
                       ),
                     ),
                   );
                 },
                 icon: const Icon(Icons.edit),
                 label: const Text('Edit Report'),
+              ),
+              const SizedBox(height: 12),
+
+// Allows the user to submit the reviewed report.
+              FilledButton.icon(
+                onPressed: () {
+                  // Sends the reviewed report back to HomeScreen for storage.
+                  onSubmit(analysis);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Report submitted successfully!'),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.send),
+                label: const Text('Submit Report'),
               ),
 
             ],
@@ -402,6 +434,7 @@ class _EditReportScreenState extends State<EditReportScreen> {
 
   void _saveChanges() {
     final updatedAnalysis = ReportAnalysis(
+      id: widget.analysis.id,
       category: _categoryController.text.trim(),
       severity: _severityController.text.trim(),
       description: _descriptionController.text.trim(),
