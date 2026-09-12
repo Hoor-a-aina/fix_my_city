@@ -33,15 +33,19 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // ImagePicker handles both camera capture and gallery selection
   final ImagePicker _picker = ImagePicker();
+  // Stores the currently selected/captured image for preview.
   XFile? _selectedImage;
 
+  // Opens either the camera or gallery based on the supplied source.
   Future<void> _pickImage(ImageSource source) async {
     final XFile? image = await _picker.pickImage(
       source: source,
       imageQuality: 85,
     );
 
+    // User may cancel the camera/gallery without selecting an image.
     if (image == null) {
       return;
     }
@@ -64,7 +68,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       body: SafeArea(
-        child: Padding(
+        // Allows the screen to scroll when content is taller than the available space, especially on smaller Android phones.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -99,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.grey,
                 ),
               ),
-
+            // Show the selected/captured photo only after the user chooses or captures an image.
               if (_selectedImage != null) ...[
                 const SizedBox(height: 24),
 
@@ -114,10 +119,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 const SizedBox(height: 24),
+
+                // Analyze is intentionally not connected to the backend yet.
+                // We will add the analysis flow in a later checkpoint.
+                FilledButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.auto_awesome),
+                  label: const Text('Analyze'),
+                ),
+
+                const SizedBox(height: 12),
               ],
 
-              const Spacer(),
 
+              // Fixed spacing replaces Spacer because this screen now uses a scrollable Column.
+              const SizedBox(height: 32),
 
               FilledButton.icon(
                 onPressed: () => _pickImage(ImageSource.camera),
