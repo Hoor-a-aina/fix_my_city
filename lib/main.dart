@@ -306,6 +306,38 @@ class AnalysisResultScreen extends StatelessWidget {
                   fontSize: 16,
                 ),
               ),
+              const SizedBox(height: 24),
+
+              // Allows the user to review and edit AI-generated information.
+              OutlinedButton.icon(
+                onPressed: () async {
+                  // Opens the edit screen and waits for the updated report.
+                  final updatedAnalysis = await Navigator.push<ReportAnalysis>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EditReportScreen(
+                        analysis: analysis,
+                      ),
+                    ),
+                  );
+
+                  if (!context.mounted || updatedAnalysis == null) return;
+
+                  // Replaces the current result with the user's edited report.
+                  Navigator.pushReplacement(
+
+                  context,
+                    MaterialPageRoute(
+                      builder: (context) => AnalysisResultScreen(
+                        analysis: updatedAnalysis,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.edit),
+                label: const Text('Edit Report'),
+              ),
+
             ],
           ),
         ),
@@ -313,4 +345,183 @@ class AnalysisResultScreen extends StatelessWidget {
     );
   }
 }
+// Allows the user to review and edit the AI-generated report.
+class EditReportScreen extends StatefulWidget {
+  final ReportAnalysis analysis;
+
+  const EditReportScreen({
+    super.key,
+    required this.analysis,
+  });
+
+  @override
+  State<EditReportScreen> createState() => _EditReportScreenState();
+}
+
+class _EditReportScreenState extends State<EditReportScreen> {
+  late final TextEditingController _categoryController;
+  late final TextEditingController _severityController;
+  late final TextEditingController _descriptionController;
+  late final TextEditingController _locationController;
+
+  @override
+  @override
+  void initState() {
+    super.initState();
+
+    // Starts the editable field with the AI-generated category.
+    _categoryController = TextEditingController(
+      text: widget.analysis.category,
+    );
+
+    // Starts the editable field with the AI-generated severity.
+    _severityController = TextEditingController(
+      text: widget.analysis.severity,
+    );
+
+    // Starts the editable field with the AI-generated description.
+    _descriptionController = TextEditingController(
+      text: widget.analysis.description,
+    );
+    // Starts the editable field with the AI-generated location.
+    _locationController = TextEditingController(
+      text: widget.analysis.location,
+    );
+
+  }
+
+  @override
+  void dispose() {
+    _categoryController.dispose();
+    _severityController.dispose();
+    _descriptionController.dispose();
+    _locationController.dispose();
+
+    super.dispose();
+  }
+
+  void _saveChanges() {
+    final updatedAnalysis = ReportAnalysis(
+      category: _categoryController.text.trim(),
+      severity: _severityController.text.trim(),
+      description: _descriptionController.text.trim(),
+      confidence: widget.analysis.confidence,
+      location: _locationController.text.trim(),
+    );
+
+    // Returns the edited report to the result screen.
+    Navigator.pop(context, updatedAnalysis);
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Edit Report',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Category',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              TextField(
+                controller: _categoryController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'Enter issue category',
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              const Text(
+                'Severity',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              TextField(
+                controller: _severityController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'Enter issue severity',
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              const Text(
+                'Description',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              TextField(
+                controller: _descriptionController,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'Describe the issue',
+                  alignLabelWithHint: true,
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              const Text(
+                'Location',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              TextField(
+                controller: _locationController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'Enter issue location',
+                ),
+              ),
+              const SizedBox(height: 28),
+
+// Saves the user's reviewed report information.
+              FilledButton.icon(
+                onPressed: _saveChanges,
+                icon: const Icon(Icons.save),
+                label: const Text('Save Changes'),
+              ),
+
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
