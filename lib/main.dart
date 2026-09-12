@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -99,7 +100,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
+              if (_selectedImage != null) ...[
+                const SizedBox(height: 24),
+
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.file(
+                    File(_selectedImage!.path),
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+              ],
+
               const Spacer(),
+
 
               FilledButton.icon(
                 onPressed: () => _pickImage(ImageSource.camera),
