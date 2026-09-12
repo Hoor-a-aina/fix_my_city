@@ -602,6 +602,17 @@ class MyReportsScreen extends StatelessWidget {
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
+                onTap: () {
+                  // Opens the full details of the submitted report.
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ReportDetailsScreen(
+                        report: report,
+                      ),
+                    ),
+                  );
+                },
                 title: Text(report.category),
                 subtitle: Text(
                   '${report.severity} • ${report.location}',
@@ -609,10 +620,53 @@ class MyReportsScreen extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
               ),
             );
+
           },
         ),
       ),
 
+    );
+  }
+}
+// Displays the full details of a submitted report.
+class ReportDetailsScreen extends StatelessWidget {
+  final ReportAnalysis report;
+
+  const ReportDetailsScreen({
+    super.key,
+    required this.report,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Report Details',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(
+              report.category,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
+            Text('Severity: ${report.severity}'),
+            const SizedBox(height: 12),
+            Text('Description: ${report.description}'),
+            const SizedBox(height: 12),
+            Text('Location: ${report.location}'),
+            const SizedBox(height: 12),
+            Text('Confidence: ${(report.confidence * 100).toStringAsFixed(0)}%'),
+          ],
+        ),
+      ),
     );
   }
 }
