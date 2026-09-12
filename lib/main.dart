@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const FixMyCityApp());
@@ -23,8 +24,32 @@ class FixMyCityApp extends StatelessWidget {
   }
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final ImagePicker _picker = ImagePicker();
+  XFile? _selectedImage;
+
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? image = await _picker.pickImage(
+      source: source,
+      imageQuality: 85,
+    );
+
+    if (image == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedImage = image;
+    });
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +102,7 @@ class HomeScreen extends StatelessWidget {
               const Spacer(),
 
               FilledButton.icon(
-                onPressed: () {},
+                onPressed: () => _pickImage(ImageSource.camera),
                 icon: const Icon(Icons.camera_alt),
                 label: const Text('Take Photo'),
               ),
@@ -85,7 +110,7 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 12),
 
               OutlinedButton.icon(
-                onPressed: () {},
+                onPressed: () => _pickImage(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library),
                 label: const Text('Choose from Gallery'),
               ),
