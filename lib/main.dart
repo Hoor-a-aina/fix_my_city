@@ -2,6 +2,24 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+// Represents the structured result returned by the AI analysis.
+class ReportAnalysis {
+  final String category;
+  final String severity;
+  final String description;
+  final double confidence;
+  final String location;
+
+  const ReportAnalysis({
+    required this.category,
+    required this.severity,
+    required this.description,
+    required this.confidence,
+    required this.location,
+  });
+}
+
+
 void main() {
   runApp(const FixMyCityApp());
 }
@@ -43,6 +61,8 @@ class _HomeScreenState extends State<HomeScreen> {
 // Tracks whether the AI analysis is currently running.
   bool _isAnalyzing = false;
 
+// Stores the AI analysis result after processing the image.
+  ReportAnalysis? _analysisResult;
 
   // Opens either the camera or gallery based on the supplied source.
   Future<void> _pickImage(ImageSource source) async {
@@ -74,8 +94,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     setState(() {
+      _analysisResult = const ReportAnalysis(
+        category: 'Pothole',
+        severity: 'High',
+        description: 'A large pothole is present on the road surface.',
+        confidence: 0.98,
+        location: 'North Nazimabad, Karachi, Pakistan',
+      );
+
       _isAnalyzing = false;
     });
+
   }
 
 
@@ -152,6 +181,56 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 const SizedBox(height: 12),
+              ],
+
+              // Displays the AI analysis result after the image is analyzed.
+              if (_analysisResult != null) ...[
+                const SizedBox(height: 24),
+
+                const Text(
+                  'AI Analysis Result',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                Text(
+                  'Category: ${_analysisResult!.category}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  'Severity: ${_analysisResult!.severity}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  'Description: ${_analysisResult!.description}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  'Confidence: ${(_analysisResult!.confidence * 100).toStringAsFixed(0)}%',
+                  style: const TextStyle(
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  'Location: ${_analysisResult!.location}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                  ),
+                ),
+
+
               ],
 
 
