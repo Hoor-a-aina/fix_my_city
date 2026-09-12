@@ -226,7 +226,18 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
 
               OutlinedButton.icon(
-                onPressed: () {},
+                onPressed: () {
+                  // Opens the user's submitted reports.
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => MyReportsScreen(
+                        reports: _submittedReports,
+                      ),
+                    ),
+                  );
+                },
+
                 icon: const Icon(Icons.assignment),
                 label: const Text('My Reports'),
               ),
@@ -556,5 +567,55 @@ class _EditReportScreenState extends State<EditReportScreen> {
     );
   }
 }
+
+// Displays reports submitted by the user.
+class MyReportsScreen extends StatelessWidget {
+  final List<ReportAnalysis> reports;
+
+  const MyReportsScreen({
+    super.key,
+    required this.reports,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'My Reports',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: reports.isEmpty
+            ? const Center(
+          child: Text('No reports submitted yet.'),
+        )
+            : ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: reports.length,
+          itemBuilder: (context, index) {
+            final report = reports[index];
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                title: Text(report.category),
+                subtitle: Text(
+                  '${report.severity} • ${report.location}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+              ),
+            );
+          },
+        ),
+      ),
+
+    );
+  }
+}
+
 
 
