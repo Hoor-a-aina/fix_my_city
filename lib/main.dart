@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 
 // Represents the structured result returned by the AI analysis.
 class ReportAnalysis {
@@ -12,8 +15,6 @@ class ReportAnalysis {
   final double confidence;
   final String location;
 
-
-
   const ReportAnalysis({
     required this.id,
     required this.status,
@@ -23,7 +24,34 @@ class ReportAnalysis {
     required this.confidence,
     required this.location,
   });
+
+  // Converts the report into a JSON-compatible map for local storage.
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'status': status,
+      'category': category,
+      'severity': severity,
+      'description': description,
+      'confidence': confidence,
+      'location': location,
+    };
+  }
+
+  // Rebuilds a report from data loaded from local storage.
+  factory ReportAnalysis.fromJson(Map<String, dynamic> json) {
+    return ReportAnalysis(
+      id: json['id'] as String,
+      status: json['status'] as String,
+      category: json['category'] as String,
+      severity: json['severity'] as String,
+      description: json['description'] as String,
+      confidence: (json['confidence'] as num).toDouble(),
+      location: json['location'] as String,
+    );
+  }
 }
+
 
 
 void main() {
@@ -71,8 +99,58 @@ class _HomeScreenState extends State<HomeScreen> {
   ReportAnalysis? _analysisResult;
   final List<ReportAnalysis> _submittedReports = [];
 
+  // Key used to store submitted reports in local storage.
+  static const String _reportsStorageKey = 'submitted_reports';
+
+// Loads previously submitted reports from local storage.
+  Future<void> _loadReports() async {
+
+    final prefs = await SharedPreferences.getInstance();
+
+    // Reads the saved JSON string, if one exists.
+    final savedReports = prefs.getString(_reportsStorageKey);
+
+    if (savedReports == null) return;
+
+    // Converts the saved JSON string back into a list of reports.
+    final List<dynamic> decodedReports = jsonDecode(savedReports);
+
+    if (!mounted) return;
+
+    setState(() {
+      _submittedReports
+        ..clear()
+        ..addAll(
+          decodedReports.map(
+                (item) => ReportAnalysis.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          ),
+        );
+    });
+  }
+
+  // Saves all submitted reports to local storage.
+  Future<void> _saveReports() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Converts each report into JSON and stores the complete list.
+    final encodedReports = jsonEncode(
+      _submittedReports.map((report) => report.toJson()).toList(),
+    );
+
+    await prefs.setString(
+      _reportsStorageKey,
+      encodedReports,
+    );
+
+
+  }
+
+
+
   // Updates the status of an existing submitted report.
-  void _updateReportStatus(ReportAnalysis updatedReport) {
+  Future<void> _updateReportStatus(ReportAnalysis updatedReport) async {
     final index = _submittedReports.indexWhere(
           (report) => report.id == updatedReport.id,
     );
@@ -84,8 +162,19 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _submittedReports[index] = updatedReport;
     });
+
+    // Saves the updated status to local storage.
+    await _saveReports();
   }
 
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Loads previously saved reports when the Home screen starts.
+    _loadReports();
+  }
 
   // Opens either the camera or gallery based on the supplied source.
   Future<void> _pickImage(ImageSource source) async {
@@ -137,9 +226,16 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (context) => AnalysisResultScreen(
           analysis: _analysisResult!,
-          onSubmit: (report) {
-            _submittedReports.add(report);
+          onSubmit: (report) async {
+            // Adds the submitted report to the in-memory list.
+            setState(() {
+              _submittedReports.add(report);
+            });
+
+            // Saves the updated report list to local storage.
+            await _saveReports();
           },
+
 
         ),
       ),
@@ -282,7 +378,9 @@ class _HomeScreenState extends State<HomeScreen> {
 // Displays the AI analysis result on a dedicated screen.
 class AnalysisResultScreen extends StatelessWidget {
   final ReportAnalysis analysis;
-  final void Function(ReportAnalysis) onSubmit;
+  // Handles report submission and waits for local storage to complete.
+  final Future<void> Function(ReportAnalysis) onSubmit;
+
 
 
   const AnalysisResultScreen({
@@ -388,9 +486,11 @@ class AnalysisResultScreen extends StatelessWidget {
 
 // Allows the user to submit the reviewed report.
               FilledButton.icon(
-                onPressed: () {
-                  // Sends the reviewed report back to HomeScreen for storage.
-                  onSubmit(analysis);
+                onPressed: () async {
+                  // Sends the reviewed report back to HomeScreen and waits for it to save.
+                  await onSubmit(analysis);
+
+                  if (!context.mounted) return;
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -398,6 +498,7 @@ class AnalysisResultScreen extends StatelessWidget {
                     ),
                   );
                 },
+
                 icon: const Icon(Icons.send),
                 label: const Text('Submit Report'),
               ),
