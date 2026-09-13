@@ -71,6 +71,21 @@ class _HomeScreenState extends State<HomeScreen> {
   ReportAnalysis? _analysisResult;
   final List<ReportAnalysis> _submittedReports = [];
 
+  // Updates the status of an existing submitted report.
+  void _updateReportStatus(ReportAnalysis updatedReport) {
+    final index = _submittedReports.indexWhere(
+          (report) => report.id == updatedReport.id,
+    );
+
+    // Stops if the report cannot be found.
+    if (index == -1) return;
+
+    // Replaces the old report with the updated version.
+    setState(() {
+      _submittedReports[index] = updatedReport;
+    });
+  }
+
 
   // Opens either the camera or gallery based on the supplied source.
   Future<void> _pickImage(ImageSource source) async {
@@ -237,6 +252,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(
                       builder: (context) => MyReportsScreen(
                         reports: _submittedReports,
+                        // Sends status updates back to HomeScreen.
+                        onStatusChanged: _updateReportStatus,
                       ),
                     ),
                   );
@@ -574,14 +591,23 @@ class _EditReportScreenState extends State<EditReportScreen> {
 }
 
 // Displays reports submitted by the user.
-class MyReportsScreen extends StatelessWidget {
+class MyReportsScreen extends StatefulWidget {
   final List<ReportAnalysis> reports;
+
+  // Passes report status updates back to the parent screen.
+  final void Function(ReportAnalysis) onStatusChanged;
 
   const MyReportsScreen({
     super.key,
     required this.reports,
+    required this.onStatusChanged,
   });
+  @override
+  State<MyReportsScreen> createState() => _MyReportsScreenState();
+}
 
+// Manages the My Reports screen and refreshes its displayed reports.
+class _MyReportsScreenState extends State<MyReportsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -594,30 +620,35 @@ class MyReportsScreen extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: reports.isEmpty
+        child: widget.reports.isEmpty
             ? const Center(
           child: Text('No reports submitted yet.'),
         )
             : ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: reports.length,
+          itemCount: widget.reports.length,
           itemBuilder: (context, index) {
-            final report = reports[index];
+            final report = widget.reports[index];
 
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
-                onTap: () {
+                onTap: () async {
                   // Opens the full details of the submitted report.
-                  Navigator.push(
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => ReportDetailsScreen(
                         report: report,
+                        onStatusChanged: widget.onStatusChanged,
                       ),
                     ),
                   );
+
+                  // Refreshes My Reports after returning from Report Details.
+                  setState(() {});
                 },
+
                 title: Text(report.category),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -628,8 +659,22 @@ class MyReportsScreen extends StatelessWidget {
                     const SizedBox(height: 6),
                     Chip(
                       label: Text(report.status),
+                      backgroundColor: report.status == 'Resolved'
+                          ? Colors.green.shade100
+                          : report.status == 'Under Review'
+                          ? Colors.blue.shade100
+                          : Colors.orange.shade100,
+                      labelStyle: TextStyle(
+                        color: report.status == 'Resolved'
+                            ? Colors.green.shade800
+                            : report.status == 'Under Review'
+                            ? Colors.blue.shade800
+                            : Colors.orange.shade800,
+                        fontWeight: FontWeight.w600,
+                      ),
                       visualDensity: VisualDensity.compact,
                     ),
+
                   ],
                 ),
 
@@ -648,11 +693,15 @@ class MyReportsScreen extends StatelessWidget {
 // Displays the full details of a submitted report.
 class ReportDetailsScreen extends StatelessWidget {
   final ReportAnalysis report;
+  final void Function(ReportAnalysis) onStatusChanged;
+
 
   const ReportDetailsScreen({
     super.key,
     required this.report,
+    required this.onStatusChanged,
   });
+
 
   @override
   Widget build(BuildContext context) {
@@ -676,8 +725,45 @@ class ReportDetailsScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Text('Severity: ${report.severity}'),
             const SizedBox(height: 12),
-            Text('Status: ${report.status}'),
+            DropdownButtonFormField<String>(
+              initialValue: report.status,
+              decoration: const InputDecoration(
+                labelText: 'Status',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'Submitted',
+                  child: Text('Submitted'),
+                ),
+                DropdownMenuItem(
+                  value: 'Under Review',
+                  child: Text('Under Review'),
+                ),
+                DropdownMenuItem(
+                  value: 'Resolved',
+                  child: Text('Resolved'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null || value == report.status) return;
+
+                final updatedReport = ReportAnalysis(
+                  id: report.id,
+                  status: value,
+                  category: report.category,
+                  severity: report.severity,
+                  description: report.description,
+                  confidence: report.confidence,
+                  location: report.location,
+                );
+
+                onStatusChanged(updatedReport);
+              },
+
+            ),
             const SizedBox(height: 12),
+
             Text('Description: ${report.description}'),
             const SizedBox(height: 12),
             Text('Location: ${report.location}'),
