@@ -141,6 +141,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static const String _reportsStorageKey = 'submitted_reports';
 
+  // Backend running on your computer.
+  // Your phone and computer must be on the same Wi-Fi network.
+  static const String _backendUrl = 'http://192.168.1.6:5000';
+
+
   Future<void> _loadReports() async {
     final prefs = await SharedPreferences.getInstance();
     final savedReports = prefs.getString(_reportsStorageKey);
@@ -162,7 +167,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
     });
-
   }
 
   Future<void> _saveReports() async {
@@ -176,7 +180,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _reportsStorageKey,
       encodedReports,
     );
-
   }
 
   Future<void> _updateReportStatus(
@@ -193,7 +196,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     await _saveReports();
-
   }
 
   @override
@@ -214,56 +216,109 @@ class _HomeScreenState extends State<HomeScreen> {
       _selectedImage = image;
     });
 
-    _analyzeImage();
-
+    // Automatically start analysis after selecting the image.
+    await _analyzeImage();
   }
 
   Future<void> _analyzeImage() async {
-    if (_selectedImage == null) return;
+    if (_selectedImage == null || _isAnalyzing) return;
 
     setState(() {
       _isAnalyzing = true;
     });
 
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_backendUrl/analyze'),
+      );
 
-    if (!mounted) return;
-
-    final analysis = ReportAnalysis(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      status: 'Submitted',
-      category: 'Pothole',
-      severity: 'High',
-      description: 'A large pothole is present on the road surface.',
-      confidence: 0.98,
-      location: 'North Nazimabad, Karachi, Pakistan',
-      imagePath: _selectedImage!.path,
-      dateTime: DateTime.now(),
-    );
-
-    setState(() {
-      _analysisResult = analysis;
-      _isAnalyzing = false;
-    });
-
-    if (!mounted) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AnalysisResultScreen(
-          analysis: _analysisResult!,
-          onSubmit: (report) async {
-            setState(() {
-              _submittedReports.add(report);
-            });
-
-            await _saveReports();
-          },
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'image',
+          _selectedImage!.path,
         ),
-      ),
-    );
+      );
 
+      request.fields['location'] =
+      'North Nazimabad, Karachi, Pakistan';
+
+      final streamedResponse = await request.send();
+
+      final response = await http.Response.fromStream(
+        streamedResponse,
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Server returned status ${response.statusCode}',
+        );
+      }
+
+      final Map<String, dynamic> data =
+      jsonDecode(response.body);
+
+      final analysis = ReportAnalysis(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        status: 'Submitted',
+        category: data['category']?.toString() ?? 'Unknown',
+        severity: data['severity']?.toString() ?? 'Unknown',
+        description:
+        data['description']?.toString() ??
+            'No description available.',
+        confidence: data['confidence'] is num
+            ? (data['confidence'] as num).toDouble()
+            : 0.0,
+        location:
+        data['location']?.toString() ??
+            'North Nazimabad, Karachi, Pakistan',
+        imagePath: _selectedImage!.path,
+        dateTime: DateTime.now(),
+      );
+
+      setState(() {
+        _analysisResult = analysis;
+        _isAnalyzing = false;
+      });
+
+      if (!mounted) return;
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AnalysisResultScreen(
+            analysis: analysis,
+            onSubmit: (report) async {
+              setState(() {
+                _submittedReports.add(report);
+              });
+
+              await _saveReports();
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isAnalyzing = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not analyze the image. '
+                'Make sure the backend is running and your phone '
+                'is connected to the same Wi-Fi.',
+          ),
+          backgroundColor: Colors.red.shade700,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   void _openReportOptions() {
@@ -278,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
               24,
               8,
               24,
-              28,
+              24,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -298,7 +353,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   'Choose how you want to add a photo.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.black54,
+                    color: Colors.grey,
                   ),
                 ),
 
@@ -310,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: _ActionTile(
                         icon: Icons.camera_alt_rounded,
                         title: 'Take Photo',
-                        color: const Color(0xFF42A5F5),
+                        color: const Color(0xFF64B5F6),
                         onTap: () {
                           Navigator.pop(context);
                           _pickImage(ImageSource.camera);
@@ -318,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
 
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 16),
 
                     Expanded(
                       child: _ActionTile(
@@ -333,13 +388,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
+
+                const SizedBox(height: 8),
               ],
             ),
           ),
         );
       },
     );
-
   }
 
   void _openMyReports() {
@@ -365,42 +421,18 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openAboutTeam() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const AboutMeScreen(),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final recentReports =
     _submittedReports.reversed.take(3).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7FAFC),
-
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: const Color(0xFFF7FAFC),
-        foregroundColor: const Color(0xFF16324F),
-
-        title: const Text(
-          'FixMyCity',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-        ),
-
+        title: const Text('FixMyCity'),
         leading: Builder(
           builder: (context) {
             return IconButton(
-              icon: const Icon(
-                Icons.menu_rounded,
-              ),
+              icon: const Icon(Icons.menu_rounded),
               onPressed: () {
                 Scaffold.of(context).openDrawer();
               },
@@ -408,10 +440,6 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
       ),
-
-      // ==========================================
-      // SIDE DRAWER
-      // ==========================================
 
       drawer: Drawer(
         child: SafeArea(
@@ -423,19 +451,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   24,
                   30,
                   24,
-                  26,
+                  24,
                 ),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Color(0xFF42A5F5),
                       Color(0xFF64B5F6),
+                      Color(0xFF90CAF9),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                 ),
-
                 child: const Column(
                   crossAxisAlignment:
                   CrossAxisAlignment.start,
@@ -443,11 +470,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     CircleAvatar(
                       radius: 30,
                       backgroundColor: Colors.white,
-
                       child: Icon(
                         Icons.location_city_rounded,
                         size: 32,
-                        color: Color(0xFF42A5F5),
+                        color: Color(0xFF64B5F6),
                       ),
                     ),
 
@@ -467,7 +493,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Text(
                       'Report. Improve. Connect.',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: Colors.white70,
                         fontSize: 14,
                       ),
                     ),
@@ -480,37 +506,21 @@ class _HomeScreenState extends State<HomeScreen> {
               ListTile(
                 leading: const Icon(
                   Icons.home_rounded,
-                  color: Color(0xFF42A5F5),
+                  color: Color(0xFF64B5F6),
                 ),
-
-                title: const Text(
-                  'Home',
-                ),
-
+                title: const Text('Home'),
                 selected: true,
-
                 selectedTileColor:
                 const Color(0xFFE3F2FD),
-
-                shape: RoundedRectangleBorder(
-                  borderRadius:
-                  BorderRadius.circular(12),
-                ),
-
                 onTap: () {
                   Navigator.pop(context);
                 },
               ),
 
               ListTile(
-                leading: const Icon(
-                  Icons.assignment_rounded,
-                ),
-
-                title: const Text(
-                  'My Reports',
-                ),
-
+                leading:
+                const Icon(Icons.assignment_rounded),
+                title: const Text('My Reports'),
                 onTap: () {
                   Navigator.pop(context);
                   _openMyReports();
@@ -521,11 +531,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 leading: const Icon(
                   Icons.admin_panel_settings_rounded,
                 ),
-
-                title: const Text(
-                  'Admin View',
-                ),
-
+                title: const Text('Admin View'),
                 onTap: () {
                   Navigator.pop(context);
                   _openAdminView();
@@ -540,16 +546,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
               ListTile(
                 leading: const Icon(
-                  Icons.groups_rounded,
+                  Icons.info_outline_rounded,
                 ),
-
-                title: const Text(
-                  'About the Team',
-                ),
-
+                title: const Text('About the Team'),
                 onTap: () {
                   Navigator.pop(context);
-                  _openAboutTeam();
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                      const AboutMeScreen(),
+                    ),
+                  );
                 },
               ),
 
@@ -557,11 +566,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const Padding(
                 padding: EdgeInsets.all(20),
-
                 child: Text(
                   'Making cities better, one report at a time.',
                   textAlign: TextAlign.center,
-
                   style: TextStyle(
                     color: Colors.grey,
                     fontSize: 13,
@@ -573,28 +580,22 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
 
-      // ==========================================
-      // HOME BODY
-      // ==========================================
-
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(
             20,
-            10,
+            16,
             20,
             30,
           ),
-
           child: Column(
             crossAxisAlignment:
             CrossAxisAlignment.start,
-
             children: [
               const Text(
                 'Make your city better.',
                 style: TextStyle(
-                  fontSize: 29,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF16324F),
                 ),
@@ -603,7 +604,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 8),
 
               const Text(
-                'Spot a problem? Report it and help your community take action.',
+                'Spot a problem? Report it and help your '
+                    'community take action.',
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.5,
@@ -613,69 +615,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 24),
 
-              // ==========================================
-              // REPORT CARD
-              // ==========================================
-
               Container(
                 width: double.infinity,
-
                 padding: const EdgeInsets.all(22),
-
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [
-                      Color(0xFF42A5F5),
                       Color(0xFF64B5F6),
+                      Color(0xFF90CAF9),
                     ],
-
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-
                   borderRadius:
-                  BorderRadius.circular(24),
-
+                  BorderRadius.circular(22),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(
-                        0xFF42A5F5,
-                      ).withOpacity(0.25),
-
-                      blurRadius: 20,
-
-                      offset: const Offset(
-                        0,
-                        8,
-                      ),
+                      color: const Color(0xFF64B5F6)
+                          .withOpacity(0.25),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
-
                 child: Column(
                   crossAxisAlignment:
                   CrossAxisAlignment.start,
-
                   children: [
-                    Container(
-                      padding:
-                      const EdgeInsets.all(11),
-
-                      decoration: BoxDecoration(
-                        color: Colors.white
-                            .withOpacity(0.20),
-
-                        borderRadius:
-                        BorderRadius.circular(
-                          14,
-                        ),
-                      ),
-
-                      child: const Icon(
-                        Icons.camera_alt_rounded,
-                        color: Colors.white,
-                        size: 30,
-                      ),
+                    const Icon(
+                      Icons.camera_alt_rounded,
+                      color: Colors.white,
+                      size: 34,
                     ),
 
                     const SizedBox(height: 16),
@@ -692,9 +662,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 8),
 
                     const Text(
-                      'Take a photo and let AI identify the issue for you.',
+                      'Take a photo and let AI identify '
+                          'the issue for you.',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: Colors.white70,
                         fontSize: 14,
                         height: 1.4,
                       ),
@@ -704,43 +675,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     SizedBox(
                       width: double.infinity,
-
-                      child: FilledButton.icon(
-                        onPressed:
-                        _openReportOptions,
-
-                        icon: const Icon(
-                          Icons.add_a_photo_rounded,
-                        ),
-
-                        label: const Text(
-                          'Report an Issue',
-                        ),
-
-                        style:
-                        FilledButton.styleFrom(
-                          backgroundColor:
-                          Colors.white,
-
+                      child: FilledButton(
+                        onPressed: _isAnalyzing
+                            ? null
+                            : _openReportOptions,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
                           foregroundColor:
-                          const Color(
-                            0xFF1976D2,
-                          ),
-
+                          const Color(0xFF1976D2),
                           padding:
-                          const EdgeInsets
-                              .symmetric(
+                          const EdgeInsets.symmetric(
                             vertical: 14,
                           ),
-
-                          shape:
-                          RoundedRectangleBorder(
-                            borderRadius:
-                            BorderRadius
-                                .circular(
-                              14,
-                            ),
+                        ),
+                        child: _isAnalyzing
+                            ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child:
+                          CircularProgressIndicator(
+                            strokeWidth: 2,
                           ),
+                        )
+                            : const Text(
+                          'Report an Issue',
                         ),
                       ),
                     ),
@@ -748,16 +706,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              const SizedBox(height: 30),
-
-              // ==========================================
-              // QUICK ACCESS
-              // ==========================================
+              const SizedBox(height: 28),
 
               const Text(
                 'Quick Access',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 19,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF16324F),
                 ),
@@ -769,17 +723,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Expanded(
                     child: _QuickActionCard(
-                      icon:
-                      Icons.assignment_rounded,
-
+                      icon: Icons.assignment_rounded,
                       title: 'My Reports',
-
                       subtitle:
                       '${_submittedReports.length} submitted',
-
-                      color:
-                      const Color(0xFF42A5F5),
-
+                      color: const Color(0xFF64B5F6),
                       onTap: _openMyReports,
                     ),
                   ),
@@ -790,50 +738,34 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _QuickActionCard(
                       icon: Icons
                           .admin_panel_settings_rounded,
-
                       title: 'Admin View',
-
-                      subtitle:
-                      'Manage reports',
-
-                      color:
-                      const Color(0xFF26A69A),
-
+                      subtitle: 'Manage reports',
+                      color: const Color(0xFF26A69A),
                       onTap: _openAdminView,
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 30),
-
-              // ==========================================
-              // RECENT REPORTS
-              // ==========================================
+              const SizedBox(height: 28),
 
               Row(
                 mainAxisAlignment:
                 MainAxisAlignment.spaceBetween,
-
                 children: [
                   const Text(
                     'Recent Reports',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 19,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF16324F),
                     ),
                   ),
 
-                  if (_submittedReports
-                      .isNotEmpty)
+                  if (_submittedReports.isNotEmpty)
                     TextButton(
-                      onPressed:
-                      _openMyReports,
-
-                      child: const Text(
-                        'View all',
-                      ),
+                      onPressed: _openMyReports,
+                      child: const Text('View all'),
                     ),
                 ],
               ),
@@ -843,57 +775,38 @@ class _HomeScreenState extends State<HomeScreen> {
               if (recentReports.isEmpty)
                 Container(
                   width: double.infinity,
-
-                  padding:
-                  const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 30,
-                  ),
-
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: Colors.white,
-
                     borderRadius:
-                    BorderRadius.circular(
-                      20,
-                    ),
-
+                    BorderRadius.circular(18),
                     border: Border.all(
-                      color:
-                      const Color(0xFFE2EDF5),
+                      color: const Color(0xFFE2EDF5),
                     ),
                   ),
-
                   child: const Column(
                     children: [
                       Icon(
-                        Icons
-                            .assignment_outlined,
-                        size: 44,
-                        color:
-                        Color(0xFF90CAF9),
+                        Icons.assignment_outlined,
+                        size: 42,
+                        color: Color(0xFF90CAF9),
                       ),
 
-                      SizedBox(height: 12),
+                      SizedBox(height: 10),
 
                       Text(
                         'No reports yet',
                         style: TextStyle(
                           fontSize: 16,
-                          fontWeight:
-                          FontWeight.w600,
-                          color:
-                          Color(0xFF16324F),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
 
-                      SizedBox(height: 5),
+                      SizedBox(height: 4),
 
                       Text(
                         'Your submitted reports will appear here.',
-                        textAlign:
-                        TextAlign.center,
-
+                        textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.grey,
                           fontSize: 13,
@@ -904,20 +817,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 )
               else
                 ...recentReports.map(
-                      (report) =>
-                      _RecentReportCard(
-                        report: report,
-                        onTap: _openMyReports,
-                      ),
+                      (report) => _RecentReportCard(
+                    report: report,
+                    onTap: _openMyReports,
+                  ),
                 ),
             ],
           ),
         ),
       ),
     );
-
   }
 }
+
 
 class _ActionTile extends StatelessWidget {
   final IconData icon;
