@@ -6,6 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 
 // Represents the structured result returned by the AI analysis.
+//
+// The imagePath keeps a reference to the local photo that was used
+// to create this report. We store the path as a String rather than
+// storing the actual image bytes in SharedPreferences.
 class ReportAnalysis {
   final String id;
   final String status;
@@ -14,6 +18,7 @@ class ReportAnalysis {
   final String description;
   final double confidence;
   final String location;
+  final String imagePath;
 
   const ReportAnalysis({
     required this.id,
@@ -23,6 +28,7 @@ class ReportAnalysis {
     required this.description,
     required this.confidence,
     required this.location,
+    required this.imagePath,
   });
 
   // Converts the report into a JSON-compatible map for local storage.
@@ -35,6 +41,9 @@ class ReportAnalysis {
       'description': description,
       'confidence': confidence,
       'location': location,
+
+      // Saves only the local image path, not the image itself.
+      'imagePath': imagePath,
     };
   }
 
@@ -48,10 +57,12 @@ class ReportAnalysis {
       description: json['description'] as String,
       confidence: (json['confidence'] as num).toDouble(),
       location: json['location'] as String,
+
+      // Reads the saved image reference.
+      imagePath: json['imagePath'] as String,
     );
   }
 }
-
 
 
 void main() {
@@ -209,13 +220,18 @@ class _HomeScreenState extends State<HomeScreen> {
       _analysisResult = ReportAnalysis(
         // Generates a unique ID for each new report.
         id: DateTime.now().millisecondsSinceEpoch.toString(),
+
         status: 'Submitted',
         category: 'Pothole',
         severity: 'High',
         description: 'A large pothole is present on the road surface.',
         confidence: 0.98,
         location: 'North Nazimabad, Karachi, Pakistan',
+
+        // Keeps the path of the photo used for this analysis.
+        imagePath: _selectedImage!.path,
       );
+
 
       _isAnalyzing = false;
     });
@@ -580,6 +596,8 @@ class _EditReportScreenState extends State<EditReportScreen> {
   }
 
   void _saveChanges() {
+    // Creates the edited report while preserving important existing data,
+// including the unique ID, status, confidence, and original photo reference.
     final updatedAnalysis = ReportAnalysis(
       id: widget.analysis.id,
       status: widget.analysis.status,
@@ -588,7 +606,11 @@ class _EditReportScreenState extends State<EditReportScreen> {
       description: _descriptionController.text.trim(),
       confidence: widget.analysis.confidence,
       location: _locationController.text.trim(),
+
+      // Keeps the same photo attached when the citizen edits the report.
+      imagePath: widget.analysis.imagePath,
     );
+
 
     // Returns the edited report to the result screen.
     Navigator.pop(context, updatedAnalysis);
@@ -926,6 +948,9 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
       ReportAnalysis report,
       String newStatus,
       ) async {
+    // Creates the updated report while preserving all existing data.
+// The report ID and original photo reference must remain unchanged
+// when an admin only changes the status.
     final updatedReport = ReportAnalysis(
       id: report.id,
       status: newStatus,
@@ -934,7 +959,11 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
       description: report.description,
       confidence: report.confidence,
       location: report.location,
+
+      // Keeps the original submitted photo attached to the report.
+      imagePath: report.imagePath,
     );
+
 
     // Saves the updated report through HomeScreen.
     await widget.onStatusChanged(updatedReport);
