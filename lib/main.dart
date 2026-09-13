@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+
 
 
 // Represents the structured result returned by the AI analysis.
@@ -222,8 +224,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Starts the local analysis process.
-  //
-  // Backend integration will replace this mock process later.
   Future<void> _analyzeImage() async {
     if (_selectedImage == null) return;
 
@@ -231,56 +231,99 @@ class _HomeScreenState extends State<HomeScreen> {
       _isAnalyzing = true;
     });
 
-    // Temporary delay to simulate AI analysis.
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('http://192.168.1.6:5000/analyze'),
 
-    if (!mounted) return;
+      );
 
-    // Creates the report with a unique ID and creation timestamp.
-    final analysis = ReportAnalysis(
-      // Generates a unique ID for each new report.
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-
-      status: 'Submitted',
-      category: 'Pothole',
-      severity: 'High',
-      description: 'A large pothole is present on the road surface.',
-      confidence: 0.98,
-      location: 'North Nazimabad, Karachi, Pakistan',
-
-      // Keeps the path of the photo used for this analysis.
-      imagePath: _selectedImage!.path,
-
-      // Stores when this report was created.
-      dateTime: DateTime.now(),
-    );
-
-    setState(() {
-      _analysisResult = analysis;
-      _isAnalyzing = false;
-    });
-
-    // Opens the result screen after the mock analysis completes.
-    if (!mounted) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AnalysisResultScreen(
-          analysis: _analysisResult!,
-          onSubmit: (report) async {
-            // Adds the submitted report to the in-memory list.
-            setState(() {
-              _submittedReports.add(report);
-            });
-
-            // Saves the updated report list to local storage.
-            await _saveReports();
-          },
+      // Attach the selected image.
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'image',
+          _selectedImage!.path,
         ),
-      ),
-    );
+      );
+
+      // Send the location to the Flask API.
+      request.fields['location'] =
+      'North Nazimabad, Karachi, Pakistan';
+
+      print('Sending image to Flask API...');
+
+      final streamedResponse = await request.send();
+
+      final response = await http.Response.fromStream(
+        streamedResponse,
+      );
+
+      print('API Status: ${response.statusCode}');
+      print('API Response: ${response.body}');
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'API returned status ${response.statusCode}: '
+              '${response.body}',
+        );
+      }
+
+      final data = jsonDecode(response.body);
+
+      final analysis = ReportAnalysis(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        status: 'Submitted',
+        category: data['category'] ?? 'Other',
+        severity: data['severity'] ?? 'Medium',
+        description: data['description'] ?? '',
+        confidence: (data['confidence'] as num?)?.toDouble() ?? 0.0,
+        location: data['location'] ?? '',
+        imagePath: _selectedImage!.path,
+        dateTime: DateTime.now(),
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _analysisResult = analysis;
+        _isAnalyzing = false;
+      });
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AnalysisResultScreen(
+            analysis: analysis,
+            onSubmit: (report) async {
+              setState(() {
+                _submittedReports.add(report);
+              });
+
+              await _saveReports();
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isAnalyzing = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not analyze image: $e',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+
+      print('Analysis error: $e');
+    }
   }
+
 
   @override
   Widget build(BuildContext context) {
