@@ -4,16 +4,19 @@ import 'package:image_picker/image_picker.dart';
 
 // Represents the structured result returned by the AI analysis.
 class ReportAnalysis {
+  final String id;
+  final String status;
   final String category;
   final String severity;
   final String description;
   final double confidence;
   final String location;
-  final String id;
+
 
 
   const ReportAnalysis({
     required this.id,
+    required this.status,
     required this.category,
     required this.severity,
     required this.description,
@@ -101,6 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _analysisResult = const ReportAnalysis(
         id: 'mock-report-1',
+        status: 'Submitted',
         category: 'Pothole',
         severity: 'High',
         description: 'A large pothole is present on the road surface.',
@@ -446,6 +450,7 @@ class _EditReportScreenState extends State<EditReportScreen> {
   void _saveChanges() {
     final updatedAnalysis = ReportAnalysis(
       id: widget.analysis.id,
+      status: widget.analysis.status,
       category: _categoryController.text.trim(),
       severity: _severityController.text.trim(),
       description: _descriptionController.text.trim(),
@@ -614,9 +619,21 @@ class MyReportsScreen extends StatelessWidget {
                   );
                 },
                 title: Text(report.category),
-                subtitle: Text(
-                  '${report.severity} • ${report.location}',
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${report.severity} • ${report.location}',
+                    ),
+                    const SizedBox(height: 6),
+                    Chip(
+                      label: Text(report.status),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
                 ),
+
+
                 trailing: const Icon(Icons.chevron_right),
               ),
             );
@@ -658,6 +675,8 @@ class ReportDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text('Severity: ${report.severity}'),
+            const SizedBox(height: 12),
+            Text('Status: ${report.status}'),
             const SizedBox(height: 12),
             Text('Description: ${report.description}'),
             const SizedBox(height: 12),
