@@ -7,9 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // Represents the structured result returned by the AI analysis.
 //
-// The imagePath keeps a reference to the local photo that was used
-// to create this report. We store the path as a String rather than
-// storing the actual image bytes in SharedPreferences.
+// The report stores a reference to the local photo used for analysis
+// and the date/time when the report was created.
+//
+// Only the image path is stored. The actual image bytes are NOT stored
+// in SharedPreferences.
 class ReportAnalysis {
   final String id;
   final String status;
@@ -19,6 +21,7 @@ class ReportAnalysis {
   final double confidence;
   final String location;
   final String imagePath;
+  final DateTime dateTime;
 
   const ReportAnalysis({
     required this.id,
@@ -29,6 +32,7 @@ class ReportAnalysis {
     required this.confidence,
     required this.location,
     required this.imagePath,
+    required this.dateTime,
   });
 
   // Converts the report into a JSON-compatible map for local storage.
@@ -44,6 +48,9 @@ class ReportAnalysis {
 
       // Saves only the local image path, not the image itself.
       'imagePath': imagePath,
+
+      // Stores the report creation date/time as an ISO string.
+      'dateTime': dateTime.toIso8601String(),
     };
   }
 
@@ -60,9 +67,18 @@ class ReportAnalysis {
 
       // Reads the saved image reference.
       imagePath: json['imagePath'] as String,
+
+      // Reads the saved report date/time.
+      //
+      // The fallback protects older reports that were saved before
+      // the dateTime field was introduced.
+      dateTime: json['dateTime'] != null
+          ? DateTime.parse(json['dateTime'] as String)
+          : DateTime.now(),
     );
   }
 }
+
 
 
 void main() {
@@ -96,26 +112,26 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-
-  // ImagePicker handles both camera capture and gallery selection
+  // ImagePicker handles both camera capture and gallery selection.
   final ImagePicker _picker = ImagePicker();
 
   // Stores the currently selected/captured image for preview.
   XFile? _selectedImage;
 
-// Tracks whether the AI analysis is currently running.
+  // Tracks whether the AI analysis is currently running.
   bool _isAnalyzing = false;
 
-// Stores the AI analysis result after processing the image.
+  // Stores the AI analysis result after processing the image.
   ReportAnalysis? _analysisResult;
+
+  // Stores reports submitted during the current app session.
   final List<ReportAnalysis> _submittedReports = [];
 
   // Key used to store submitted reports in local storage.
   static const String _reportsStorageKey = 'submitted_reports';
 
-// Loads previously submitted reports from local storage.
+  // Loads previously submitted reports from local storage.
   Future<void> _loadReports() async {
-
     final prefs = await SharedPreferences.getInstance();
 
     // Reads the saved JSON string, if one exists.
@@ -154,14 +170,16 @@ class _HomeScreenState extends State<HomeScreen> {
       _reportsStorageKey,
       encodedReports,
     );
-
-
   }
 
-
-
-  // Updates the status of an existing submitted report.
-  Future<void> _updateReportStatus(ReportAnalysis updatedReport) async {
+  // Updates an existing submitted report.
+  //
+  // The updated report already contains the original ID, image path,
+  // and date/time. This method simply replaces the matching report
+  // and persists the updated data.
+  Future<void> _updateReportStatus(
+      ReportAnalysis updatedReport,
+      ) async {
     final index = _submittedReports.indexWhere(
           (report) => report.id == updatedReport.id,
     );
@@ -174,10 +192,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _submittedReports[index] = updatedReport;
     });
 
-    // Saves the updated status to local storage.
+    // Saves the updated report to local storage.
     await _saveReports();
   }
-
 
   @override
   void initState() {
@@ -205,8 +222,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Starts the local analysis process.
-// Backend integration will replace this mock process later.
+  //
+  // Backend integration will replace this mock process later.
   Future<void> _analyzeImage() async {
+    if (_selectedImage == null) return;
+
     setState(() {
       _isAnalyzing = true;
     });
@@ -216,23 +236,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!mounted) return;
 
+    // Creates the report with a unique ID and creation timestamp.
+    final analysis = ReportAnalysis(
+      // Generates a unique ID for each new report.
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+
+      status: 'Submitted',
+      category: 'Pothole',
+      severity: 'High',
+      description: 'A large pothole is present on the road surface.',
+      confidence: 0.98,
+      location: 'North Nazimabad, Karachi, Pakistan',
+
+      // Keeps the path of the photo used for this analysis.
+      imagePath: _selectedImage!.path,
+
+      // Stores when this report was created.
+      dateTime: DateTime.now(),
+    );
+
     setState(() {
-      _analysisResult = ReportAnalysis(
-        // Generates a unique ID for each new report.
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-
-        status: 'Submitted',
-        category: 'Pothole',
-        severity: 'High',
-        description: 'A large pothole is present on the road surface.',
-        confidence: 0.98,
-        location: 'North Nazimabad, Karachi, Pakistan',
-
-        // Keeps the path of the photo used for this analysis.
-        imagePath: _selectedImage!.path,
-      );
-
-
+      _analysisResult = analysis;
       _isAnalyzing = false;
     });
 
@@ -253,16 +277,10 @@ class _HomeScreenState extends State<HomeScreen> {
             // Saves the updated report list to local storage.
             await _saveReports();
           },
-
-
         ),
       ),
     );
-
-
-
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -276,7 +294,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       body: SafeArea(
-        // Allows the screen to scroll when content is taller than the available space, especially on smaller Android phones.
+        // Allows the screen to scroll when content is taller than
+        // the available space, especially on smaller Android phones.
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -312,7 +331,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.grey,
                 ),
               ),
-            // Show the selected/captured photo only after the user chooses or captures an image.
+
+              // Show the selected/captured photo only after the user
+              // chooses or captures an image.
               if (_selectedImage != null) ...[
                 const SizedBox(height: 24),
 
@@ -329,7 +350,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 24),
 
                 // Analyze is intentionally not connected to the backend yet.
-                // We will add the analysis flow in a later checkpoint.
+                // We will add the real analysis flow in a later checkpoint.
                 FilledButton.icon(
                   onPressed: _isAnalyzing ? null : _analyzeImage,
                   icon: const Icon(Icons.auto_awesome),
@@ -339,7 +360,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 12),
               ],
 
-              // Fixed spacing replaces Spacer because this screen now uses a scrollable Column.
+              // Fixed spacing replaces Spacer because this screen
+              // now uses a scrollable Column.
               const SizedBox(height: 32),
 
               FilledButton.icon(
@@ -367,11 +389,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       builder: (context) => MyReportsScreen(
                         reports: _submittedReports,
                       ),
-
                     ),
                   );
                 },
-
                 icon: const Icon(Icons.assignment),
                 label: const Text('My Reports'),
               ),
@@ -379,8 +399,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
 
               // Opens the authority/admin workflow.
-              // Admin View receives the same submitted reports and the existing
-              // status-update function used by HomeScreen.
+              // Admin View receives the same submitted reports and the
+              // existing status-update function used by HomeScreen.
               TextButton.icon(
                 onPressed: () {
                   Navigator.push(
@@ -405,6 +425,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
 // Displays the AI analysis result on a dedicated screen.
 class AnalysisResultScreen extends StatelessWidget {
   final ReportAnalysis analysis;
@@ -560,29 +581,25 @@ class _EditReportScreenState extends State<EditReportScreen> {
   late final TextEditingController _locationController;
 
   @override
-  @override
   void initState() {
     super.initState();
 
-    // Starts the editable field with the AI-generated category.
+    // Starts the editable fields with the AI-generated report data.
     _categoryController = TextEditingController(
       text: widget.analysis.category,
     );
 
-    // Starts the editable field with the AI-generated severity.
     _severityController = TextEditingController(
       text: widget.analysis.severity,
     );
 
-    // Starts the editable field with the AI-generated description.
     _descriptionController = TextEditingController(
       text: widget.analysis.description,
     );
-    // Starts the editable field with the AI-generated location.
+
     _locationController = TextEditingController(
       text: widget.analysis.location,
     );
-
   }
 
   @override
@@ -596,8 +613,10 @@ class _EditReportScreenState extends State<EditReportScreen> {
   }
 
   void _saveChanges() {
-    // Creates the edited report while preserving important existing data,
-// including the unique ID, status, confidence, and original photo reference.
+    // Creates the edited report while preserving important existing data.
+    //
+    // The report ID, status, confidence, image reference, and original
+    // report date/time are deliberately preserved.
     final updatedAnalysis = ReportAnalysis(
       id: widget.analysis.id,
       status: widget.analysis.status,
@@ -609,13 +628,14 @@ class _EditReportScreenState extends State<EditReportScreen> {
 
       // Keeps the same photo attached when the citizen edits the report.
       imagePath: widget.analysis.imagePath,
-    );
 
+      // Keeps the original report creation time.
+      dateTime: widget.analysis.dateTime,
+    );
 
     // Returns the edited report to the result screen.
     Navigator.pop(context, updatedAnalysis);
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -651,6 +671,7 @@ class _EditReportScreenState extends State<EditReportScreen> {
                   hintText: 'Enter issue category',
                 ),
               ),
+
               const SizedBox(height: 20),
 
               const Text(
@@ -670,6 +691,7 @@ class _EditReportScreenState extends State<EditReportScreen> {
                   hintText: 'Enter issue severity',
                 ),
               ),
+
               const SizedBox(height: 20),
 
               const Text(
@@ -691,6 +713,7 @@ class _EditReportScreenState extends State<EditReportScreen> {
                   alignLabelWithHint: true,
                 ),
               ),
+
               const SizedBox(height: 20),
 
               const Text(
@@ -710,15 +733,15 @@ class _EditReportScreenState extends State<EditReportScreen> {
                   hintText: 'Enter issue location',
                 ),
               ),
+
               const SizedBox(height: 28),
 
-// Saves the user's reviewed report information.
+              // Saves the user's reviewed report information.
               FilledButton.icon(
                 onPressed: _saveChanges,
                 icon: const Icon(Icons.save),
                 label: const Text('Save Changes'),
               ),
-
             ],
           ),
         ),
@@ -726,6 +749,7 @@ class _EditReportScreenState extends State<EditReportScreen> {
     );
   }
 }
+
 
 // Displays reports submitted by the user.
 // Displays reports submitted by the citizen.
@@ -834,6 +858,11 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
 // This is the citizen-facing version of Report Details.
 // Citizens can view the current status, but they cannot change it.
 // Status changes are handled through Admin View.
+// Displays the full details of a submitted report.
+//
+// This is the citizen-facing version of Report Details.
+// Citizens can view the current status, report photo, and report
+// date/time, but they cannot change the status.
 class ReportDetailsScreen extends StatelessWidget {
   final ReportAnalysis report;
 
@@ -857,6 +886,31 @@ class ReportDetailsScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Displays the original submitted photo.
+            if (report.imagePath.isNotEmpty) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(
+                  File(report.imagePath),
+                  height: 220,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      height: 220,
+                      color: Colors.grey.shade200,
+                      alignment: Alignment.center,
+                      child: const Text(
+                        'Report photo is no longer available.',
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 16),
+            ],
+
             Text(
               report.category,
               style: Theme.of(context).textTheme.headlineSmall,
@@ -871,7 +925,7 @@ class ReportDetailsScreen extends StatelessWidget {
             const SizedBox(height: 12),
 
             // Status is read-only on the citizen side.
-            // Only Admin View should be able to change it.
+            // Only Admin View can change it.
             InputDecorator(
               decoration: const InputDecoration(
                 labelText: 'Status',
@@ -903,12 +957,20 @@ class ReportDetailsScreen extends StatelessWidget {
               'Confidence: '
                   '${(report.confidence * 100).toStringAsFixed(0)}%',
             ),
+
+            const SizedBox(height: 12),
+
+            // Shows when the report was originally created.
+            Text(
+              'Reported: ${report.dateTime.toLocal()}',
+            ),
           ],
         ),
       ),
     );
   }
 }
+
 
 // Displays the authority/admin workflow.
 //
@@ -942,15 +1004,14 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
     _reports = List<ReportAnalysis>.from(widget.reports);
   }
 
-  // Changes the report status while preserving all existing report data,
-  // especially the unique report ID.
+  // Changes the report status while preserving all existing report data.
+  //
+  // The report ID, image reference, and original date/time remain
+  // unchanged when an admin updates only the status.
   Future<void> _changeStatus(
       ReportAnalysis report,
       String newStatus,
       ) async {
-    // Creates the updated report while preserving all existing data.
-// The report ID and original photo reference must remain unchanged
-// when an admin only changes the status.
     final updatedReport = ReportAnalysis(
       id: report.id,
       status: newStatus,
@@ -962,8 +1023,10 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
 
       // Keeps the original submitted photo attached to the report.
       imagePath: report.imagePath,
-    );
 
+      // Keeps the original report creation time.
+      dateTime: report.dateTime,
+    );
 
     // Saves the updated report through HomeScreen.
     await widget.onStatusChanged(updatedReport);
@@ -1011,6 +1074,35 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Displays the submitted photo in Admin View.
+                    if (report.imagePath.isNotEmpty) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(
+                          File(report.imagePath),
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (
+                              context,
+                              error,
+                              stackTrace,
+                              ) {
+                            return Container(
+                              height: 180,
+                              color: Colors.grey.shade200,
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'Report photo is no longer available.',
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+                    ],
+
                     Text(
                       report.category,
                       style: Theme.of(context)
@@ -1025,6 +1117,12 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
 
                     Text(
                       '${report.severity} • ${report.location}',
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      'Reported: ${report.dateTime.toLocal()}',
                     ),
 
                     const SizedBox(height: 12),
@@ -1075,4 +1173,6 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
     );
   }
 }
+
+
 
