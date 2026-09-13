@@ -206,8 +206,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     setState(() {
-      _analysisResult = const ReportAnalysis(
-        id: 'mock-report-1',
+      _analysisResult = ReportAnalysis(
+        // Generates a unique ID for each new report.
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
         status: 'Submitted',
         category: 'Pothole',
         severity: 'High',
@@ -218,6 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       _isAnalyzing = false;
     });
+
     // Opens the result screen after the mock analysis completes.
     if (!mounted) return;
 
