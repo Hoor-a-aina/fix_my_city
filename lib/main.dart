@@ -350,9 +350,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(
                       builder: (context) => MyReportsScreen(
                         reports: _submittedReports,
-                        // Sends status updates back to HomeScreen.
-                        onStatusChanged: _updateReportStatus,
                       ),
+
                     ),
                   );
                 },
@@ -363,8 +362,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 12),
 
+              // Opens the authority/admin workflow.
+              // Admin View receives the same submitted reports and the existing
+              // status-update function used by HomeScreen.
               TextButton.icon(
-                onPressed: () {},
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AdminViewScreen(
+                        reports: _submittedReports,
+                        onStatusChanged: _updateReportStatus,
+                      ),
+                    ),
+                  );
+                },
                 icon: const Icon(Icons.admin_panel_settings),
                 label: const Text('Admin View'),
               ),
@@ -694,22 +706,24 @@ class _EditReportScreenState extends State<EditReportScreen> {
 }
 
 // Displays reports submitted by the user.
+// Displays reports submitted by the citizen.
+// Citizens can view report information and status,
+// but they cannot change the status.
 class MyReportsScreen extends StatefulWidget {
   final List<ReportAnalysis> reports;
-
-  // Passes report status updates back to the parent screen.
-  final void Function(ReportAnalysis) onStatusChanged;
 
   const MyReportsScreen({
     super.key,
     required this.reports,
-    required this.onStatusChanged,
   });
+
   @override
   State<MyReportsScreen> createState() => _MyReportsScreenState();
 }
 
-// Manages the My Reports screen and refreshes its displayed reports.
+// Manages the My Reports screen.
+// Citizens can view their submitted reports and current status,
+// but they cannot change the status from this screen.
 class _MyReportsScreenState extends State<MyReportsScreen> {
   @override
   Widget build(BuildContext context) {
@@ -737,21 +751,21 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
                 onTap: () async {
-                  // Opens the full details of the submitted report.
+                  // Opens report details in citizen view.
+                  // No status-changing callback is passed here,
+                  // so citizens can only view the report.
                   await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => ReportDetailsScreen(
                         report: report,
-                        onStatusChanged: widget.onStatusChanged,
                       ),
                     ),
                   );
 
-                  // Refreshes My Reports after returning from Report Details.
+                  // Refreshes My Reports after returning.
                   setState(() {});
                 },
-
                 title: Text(report.category),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -760,6 +774,9 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                       '${report.severity} • ${report.location}',
                     ),
                     const SizedBox(height: 6),
+
+                    // The citizen can see the current status.
+                    // Status changes are handled only by Admin View.
                     Chip(
                       label: Text(report.status),
                       backgroundColor: report.status == 'Resolved'
@@ -777,34 +794,31 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
                       ),
                       visualDensity: VisualDensity.compact,
                     ),
-
                   ],
                 ),
-
-
                 trailing: const Icon(Icons.chevron_right),
               ),
             );
-
           },
         ),
       ),
-
     );
   }
 }
+
+
 // Displays the full details of a submitted report.
+//
+// This is the citizen-facing version of Report Details.
+// Citizens can view the current status, but they cannot change it.
+// Status changes are handled through Admin View.
 class ReportDetailsScreen extends StatelessWidget {
   final ReportAnalysis report;
-  final void Function(ReportAnalysis) onStatusChanged;
-
 
   const ReportDetailsScreen({
     super.key,
     required this.report,
-    required this.onStatusChanged,
   });
-
 
   @override
   Widget build(BuildContext context) {
@@ -825,53 +839,48 @@ class ReportDetailsScreen extends StatelessWidget {
               report.category,
               style: Theme.of(context).textTheme.headlineSmall,
             ),
+
             const SizedBox(height: 16),
-            Text('Severity: ${report.severity}'),
+
+            Text(
+              'Severity: ${report.severity}',
+            ),
+
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: report.status,
+
+            // Status is read-only on the citizen side.
+            // Only Admin View should be able to change it.
+            InputDecorator(
               decoration: const InputDecoration(
                 labelText: 'Status',
                 border: OutlineInputBorder(),
               ),
-              items: const [
-                DropdownMenuItem(
-                  value: 'Submitted',
-                  child: Text('Submitted'),
+              child: Text(
+                report.status,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
                 ),
-                DropdownMenuItem(
-                  value: 'Under Review',
-                  child: Text('Under Review'),
-                ),
-                DropdownMenuItem(
-                  value: 'Resolved',
-                  child: Text('Resolved'),
-                ),
-              ],
-              onChanged: (value) {
-                if (value == null || value == report.status) return;
-
-                final updatedReport = ReportAnalysis(
-                  id: report.id,
-                  status: value,
-                  category: report.category,
-                  severity: report.severity,
-                  description: report.description,
-                  confidence: report.confidence,
-                  location: report.location,
-                );
-
-                onStatusChanged(updatedReport);
-              },
-
+              ),
             ),
+
             const SizedBox(height: 12),
 
-            Text('Description: ${report.description}'),
+            Text(
+              'Description: ${report.description}',
+            ),
+
             const SizedBox(height: 12),
-            Text('Location: ${report.location}'),
+
+            Text(
+              'Location: ${report.location}',
+            ),
+
             const SizedBox(height: 12),
-            Text('Confidence: ${(report.confidence * 100).toStringAsFixed(0)}%'),
+
+            Text(
+              'Confidence: '
+                  '${(report.confidence * 100).toStringAsFixed(0)}%',
+            ),
           ],
         ),
       ),
@@ -879,5 +888,162 @@ class ReportDetailsScreen extends StatelessWidget {
   }
 }
 
+// Displays the authority/admin workflow.
+//
+// Admins can view submitted reports and update their status.
+// Status changes are sent back to HomeScreen so they are also
+// saved through the existing SharedPreferences persistence logic.
+class AdminViewScreen extends StatefulWidget {
+  final List<ReportAnalysis> reports;
 
+  // Allows Admin View to use HomeScreen's existing persistence logic.
+  final Future<void> Function(ReportAnalysis) onStatusChanged;
+
+  const AdminViewScreen({
+    super.key,
+    required this.reports,
+    required this.onStatusChanged,
+  });
+
+  @override
+  State<AdminViewScreen> createState() => _AdminViewScreenState();
+}
+
+class _AdminViewScreenState extends State<AdminViewScreen> {
+  late List<ReportAnalysis> _reports;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Creates a local copy so the Admin screen can update immediately.
+    _reports = List<ReportAnalysis>.from(widget.reports);
+  }
+
+  // Changes the report status while preserving all existing report data,
+  // especially the unique report ID.
+  Future<void> _changeStatus(
+      ReportAnalysis report,
+      String newStatus,
+      ) async {
+    final updatedReport = ReportAnalysis(
+      id: report.id,
+      status: newStatus,
+      category: report.category,
+      severity: report.severity,
+      description: report.description,
+      confidence: report.confidence,
+      location: report.location,
+    );
+
+    // Saves the updated report through HomeScreen.
+    await widget.onStatusChanged(updatedReport);
+
+    if (!mounted) return;
+
+    // Updates the Admin screen immediately after saving.
+    setState(() {
+      final index = _reports.indexWhere(
+            (existingReport) => existingReport.id == updatedReport.id,
+      );
+
+      if (index != -1) {
+        _reports[index] = updatedReport;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Admin View',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: _reports.isEmpty
+            ? const Center(
+          child: Text('No submitted reports yet.'),
+        )
+            : ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: _reports.length,
+          itemBuilder: (context, index) {
+            final report = _reports[index];
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      report.category,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      '${report.severity} • ${report.location}',
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    Text(
+                      report.description,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Admin/authority can change the report status.
+                    DropdownButtonFormField<String>(
+                      initialValue: report.status,
+                      decoration: const InputDecoration(
+                        labelText: 'Update Status',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'Submitted',
+                          child: Text('Submitted'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Under Review',
+                          child: Text('Under Review'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Resolved',
+                          child: Text('Resolved'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null ||
+                            value == report.status) {
+                          return;
+                        }
+
+                        _changeStatus(report, value);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
 
