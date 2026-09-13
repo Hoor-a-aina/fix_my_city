@@ -96,15 +96,32 @@ class FixMyCityApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'FixMyCity',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1565C0),
-        ),
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF64B5F6),
+          brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFF7FAFC),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: Color(0xFF16324F),
+        ),
+        cardTheme: CardThemeData(
+          elevation: 2,
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(
+              Radius.circular(18),
+            ),
+          ),
+        ),
       ),
       home: const HomeScreen(),
     );
   }
 }
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -114,34 +131,22 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ImagePicker handles both camera capture and gallery selection.
   final ImagePicker _picker = ImagePicker();
 
-  // Stores the currently selected/captured image for preview.
   XFile? _selectedImage;
-
-  // Tracks whether the AI analysis is currently running.
   bool _isAnalyzing = false;
-
-  // Stores the AI analysis result after processing the image.
   ReportAnalysis? _analysisResult;
 
-  // Stores reports submitted during the current app session.
   final List<ReportAnalysis> _submittedReports = [];
 
-  // Key used to store submitted reports in local storage.
   static const String _reportsStorageKey = 'submitted_reports';
 
-  // Loads previously submitted reports from local storage.
   Future<void> _loadReports() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // Reads the saved JSON string, if one exists.
     final savedReports = prefs.getString(_reportsStorageKey);
 
     if (savedReports == null) return;
 
-    // Converts the saved JSON string back into a list of reports.
     final List<dynamic> decodedReports = jsonDecode(savedReports);
 
     if (!mounted) return;
@@ -157,13 +162,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
     });
+
   }
 
-  // Saves all submitted reports to local storage.
   Future<void> _saveReports() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Converts each report into JSON and stores the complete list.
     final encodedReports = jsonEncode(
       _submittedReports.map((report) => report.toJson()).toList(),
     );
@@ -172,13 +176,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _reportsStorageKey,
       encodedReports,
     );
+
   }
 
-  // Updates an existing submitted report.
-  //
-  // The updated report already contains the original ID, image path,
-  // and date/time. This method simply replaces the matching report
-  // and persists the updated data.
   Future<void> _updateReportStatus(
       ReportAnalysis updatedReport,
       ) async {
@@ -186,44 +186,38 @@ class _HomeScreenState extends State<HomeScreen> {
           (report) => report.id == updatedReport.id,
     );
 
-    // Stops if the report cannot be found.
     if (index == -1) return;
 
-    // Replaces the old report with the updated version.
     setState(() {
       _submittedReports[index] = updatedReport;
     });
 
-    // Saves the updated report to local storage.
     await _saveReports();
+
   }
 
   @override
   void initState() {
     super.initState();
-
-    // Loads previously saved reports when the Home screen starts.
     _loadReports();
   }
 
-  // Opens either the camera or gallery based on the supplied source.
   Future<void> _pickImage(ImageSource source) async {
     final XFile? image = await _picker.pickImage(
       source: source,
       imageQuality: 85,
     );
 
-    // User may cancel the camera/gallery without selecting an image.
-    if (image == null) {
-      return;
-    }
+    if (image == null) return;
 
     setState(() {
       _selectedImage = image;
     });
+
+    _analyzeImage();
+
   }
 
-  // Starts the local analysis process.
   Future<void> _analyzeImage() async {
     if (_selectedImage == null) return;
 
@@ -231,251 +225,908 @@ class _HomeScreenState extends State<HomeScreen> {
       _isAnalyzing = true;
     });
 
-    try {
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('http://192.168.1.6:5000/analyze'),
+    await Future.delayed(const Duration(seconds: 2));
 
-      );
+    if (!mounted) return;
 
-      // Attach the selected image.
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'image',
-          _selectedImage!.path,
-        ),
-      );
+    final analysis = ReportAnalysis(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      status: 'Submitted',
+      category: 'Pothole',
+      severity: 'High',
+      description: 'A large pothole is present on the road surface.',
+      confidence: 0.98,
+      location: 'North Nazimabad, Karachi, Pakistan',
+      imagePath: _selectedImage!.path,
+      dateTime: DateTime.now(),
+    );
 
-      // Send the location to the Flask API.
-      request.fields['location'] =
-      'North Nazimabad, Karachi, Pakistan';
+    setState(() {
+      _analysisResult = analysis;
+      _isAnalyzing = false;
+    });
 
-      print('Sending image to Flask API...');
+    if (!mounted) return;
 
-      final streamedResponse = await request.send();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AnalysisResultScreen(
+          analysis: _analysisResult!,
+          onSubmit: (report) async {
+            setState(() {
+              _submittedReports.add(report);
+            });
 
-      final response = await http.Response.fromStream(
-        streamedResponse,
-      );
-
-      print('API Status: ${response.statusCode}');
-      print('API Response: ${response.body}');
-
-      if (response.statusCode != 200) {
-        throw Exception(
-          'API returned status ${response.statusCode}: '
-              '${response.body}',
-        );
-      }
-
-      final data = jsonDecode(response.body);
-
-      final analysis = ReportAnalysis(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        status: 'Submitted',
-        category: data['category'] ?? 'Other',
-        severity: data['severity'] ?? 'Medium',
-        description: data['description'] ?? '',
-        confidence: (data['confidence'] as num?)?.toDouble() ?? 0.0,
-        location: data['location'] ?? '',
-        imagePath: _selectedImage!.path,
-        dateTime: DateTime.now(),
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _analysisResult = analysis;
-        _isAnalyzing = false;
-      });
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => AnalysisResultScreen(
-            analysis: analysis,
-            onSubmit: (report) async {
-              setState(() {
-                _submittedReports.add(report);
-              });
-
-              await _saveReports();
-            },
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _isAnalyzing = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Could not analyze image: $e',
-          ),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-
-      print('Analysis error: $e');
-    }
-  }
-
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'FixMyCity',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
+            await _saveReports();
+          },
         ),
       ),
-      body: SafeArea(
-        // Allows the screen to scroll when content is taller than
-        // the available space, especially on smaller Android phones.
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 40),
+    );
 
-              const Icon(
-                Icons.location_city,
-                size: 80,
-                color: Color(0xFF1565C0),
-              ),
+  }
 
-              const SizedBox(height: 24),
-
-              const Text(
-                'Report. Improve. Connect.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
+  void _openReportOptions() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              24,
+              8,
+              24,
+              28,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Report an Issue',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF16324F),
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 12),
+                const SizedBox(height: 8),
 
-              const Text(
-                'Help identify road problems in your city '
-                    'using AI-powered reporting.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
-                ),
-              ),
-
-              // Show the selected/captured photo only after the user
-              // chooses or captures an image.
-              if (_selectedImage != null) ...[
-                const SizedBox(height: 24),
-
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.file(
-                    File(_selectedImage!.path),
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
+                const Text(
+                  'Choose how you want to add a photo.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.black54,
                   ),
                 ),
 
                 const SizedBox(height: 24),
 
-                // Analyze is intentionally not connected to the backend yet.
-                // We will add the real analysis flow in a later checkpoint.
-                FilledButton.icon(
-                  onPressed: _isAnalyzing ? null : _analyzeImage,
-                  icon: const Icon(Icons.auto_awesome),
-                  label: const Text('Analyze'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ActionTile(
+                        icon: Icons.camera_alt_rounded,
+                        title: 'Take Photo',
+                        color: const Color(0xFF42A5F5),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _pickImage(ImageSource.camera);
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(width: 14),
+
+                    Expanded(
+                      child: _ActionTile(
+                        icon: Icons.photo_library_rounded,
+                        title: 'Gallery',
+                        color: const Color(0xFF26A69A),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _pickImage(ImageSource.gallery);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+  }
+
+  void _openMyReports() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MyReportsScreen(
+          reports: _submittedReports,
+        ),
+      ),
+    );
+  }
+
+  void _openAdminView() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AdminViewScreen(
+          reports: _submittedReports,
+          onStatusChanged: _updateReportStatus,
+        ),
+      ),
+    );
+  }
+
+  void _openAboutTeam() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AboutMeScreen(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recentReports =
+    _submittedReports.reversed.take(3).toList();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7FAFC),
+
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: const Color(0xFFF7FAFC),
+        foregroundColor: const Color(0xFF16324F),
+
+        title: const Text(
+          'FixMyCity',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
+        ),
+
+        leading: Builder(
+          builder: (context) {
+            return IconButton(
+              icon: const Icon(
+                Icons.menu_rounded,
+              ),
+              onPressed: () {
+                Scaffold.of(context).openDrawer();
+              },
+            );
+          },
+        ),
+      ),
+
+      // ==========================================
+      // SIDE DRAWER
+      // ==========================================
+
+      drawer: Drawer(
+        child: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(
+                  24,
+                  30,
+                  24,
+                  26,
+                ),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0xFF42A5F5),
+                      Color(0xFF64B5F6),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                 ),
 
-                const SizedBox(height: 12),
-              ],
+                child: const Column(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: Colors.white,
 
-              // Fixed spacing replaces Spacer because this screen
-              // now uses a scrollable Column.
-              const SizedBox(height: 32),
-
-              FilledButton.icon(
-                onPressed: () => _pickImage(ImageSource.camera),
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Take Photo'),
-              ),
-
-              const SizedBox(height: 12),
-
-              OutlinedButton.icon(
-                onPressed: () => _pickImage(ImageSource.gallery),
-                icon: const Icon(Icons.photo_library),
-                label: const Text('Choose from Gallery'),
-              ),
-
-              const SizedBox(height: 12),
-
-              OutlinedButton.icon(
-                onPressed: () {
-                  // Opens the user's submitted reports.
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => MyReportsScreen(
-                        reports: _submittedReports,
+                      child: Icon(
+                        Icons.location_city_rounded,
+                        size: 32,
+                        color: Color(0xFF42A5F5),
                       ),
                     ),
-                  );
-                },
-                icon: const Icon(Icons.assignment),
-                label: const Text('My Reports'),
+
+                    SizedBox(height: 14),
+
+                    Text(
+                      'FixMyCity',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    SizedBox(height: 4),
+
+                    Text(
+                      'Report. Improve. Connect.',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               ),
 
               const SizedBox(height: 12),
 
-              // Opens the authority/admin workflow.
-              // Admin View receives the same submitted reports and the
-              // existing status-update function used by HomeScreen.
-              TextButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AdminViewScreen(
-                        reports: _submittedReports,
-                        onStatusChanged: _updateReportStatus,
-                      ),
-                    ),
-                  );
+              ListTile(
+                leading: const Icon(
+                  Icons.home_rounded,
+                  color: Color(0xFF42A5F5),
+                ),
+
+                title: const Text(
+                  'Home',
+                ),
+
+                selected: true,
+
+                selectedTileColor:
+                const Color(0xFFE3F2FD),
+
+                shape: RoundedRectangleBorder(
+                  borderRadius:
+                  BorderRadius.circular(12),
+                ),
+
+                onTap: () {
+                  Navigator.pop(context);
                 },
-                icon: const Icon(Icons.admin_panel_settings),
-                label: const Text('Admin View'),
               ),
 
-              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(
+                  Icons.assignment_rounded,
+                ),
+
+                title: const Text(
+                  'My Reports',
+                ),
+
+                onTap: () {
+                  Navigator.pop(context);
+                  _openMyReports();
+                },
+              ),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.admin_panel_settings_rounded,
+                ),
+
+                title: const Text(
+                  'Admin View',
+                ),
+
+                onTap: () {
+                  Navigator.pop(context);
+                  _openAdminView();
+                },
+              ),
+
+              const Divider(
+                height: 28,
+                indent: 20,
+                endIndent: 20,
+              ),
+
+              ListTile(
+                leading: const Icon(
+                  Icons.groups_rounded,
+                ),
+
+                title: const Text(
+                  'About the Team',
+                ),
+
+                onTap: () {
+                  Navigator.pop(context);
+                  _openAboutTeam();
+                },
+              ),
+
+              const Spacer(),
+
+              const Padding(
+                padding: EdgeInsets.all(20),
+
+                child: Text(
+                  'Making cities better, one report at a time.',
+                  textAlign: TextAlign.center,
+
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+
+      // ==========================================
+      // HOME BODY
+      // ==========================================
+
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(
+            20,
+            10,
+            20,
+            30,
+          ),
+
+          child: Column(
+            crossAxisAlignment:
+            CrossAxisAlignment.start,
+
+            children: [
+              const Text(
+                'Make your city better.',
+                style: TextStyle(
+                  fontSize: 29,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF16324F),
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              const Text(
+                'Spot a problem? Report it and help your community take action.',
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.5,
+                  color: Colors.black54,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // ==========================================
+              // REPORT CARD
+              // ==========================================
+
+              Container(
+                width: double.infinity,
+
+                padding: const EdgeInsets.all(22),
+
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFF42A5F5),
+                      Color(0xFF64B5F6),
+                    ],
+
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+
+                  borderRadius:
+                  BorderRadius.circular(24),
+
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(
+                        0xFF42A5F5,
+                      ).withOpacity(0.25),
+
+                      blurRadius: 20,
+
+                      offset: const Offset(
+                        0,
+                        8,
+                      ),
+                    ),
+                  ],
+                ),
+
+                child: Column(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+
+                  children: [
+                    Container(
+                      padding:
+                      const EdgeInsets.all(11),
+
+                      decoration: BoxDecoration(
+                        color: Colors.white
+                            .withOpacity(0.20),
+
+                        borderRadius:
+                        BorderRadius.circular(
+                          14,
+                        ),
+                      ),
+
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Colors.white,
+                        size: 30,
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    const Text(
+                      'See something that needs fixing?',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 21,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    const Text(
+                      'Take a photo and let AI identify the issue for you.',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    SizedBox(
+                      width: double.infinity,
+
+                      child: FilledButton.icon(
+                        onPressed:
+                        _openReportOptions,
+
+                        icon: const Icon(
+                          Icons.add_a_photo_rounded,
+                        ),
+
+                        label: const Text(
+                          'Report an Issue',
+                        ),
+
+                        style:
+                        FilledButton.styleFrom(
+                          backgroundColor:
+                          Colors.white,
+
+                          foregroundColor:
+                          const Color(
+                            0xFF1976D2,
+                          ),
+
+                          padding:
+                          const EdgeInsets
+                              .symmetric(
+                            vertical: 14,
+                          ),
+
+                          shape:
+                          RoundedRectangleBorder(
+                            borderRadius:
+                            BorderRadius
+                                .circular(
+                              14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 30),
+
+              // ==========================================
+              // QUICK ACCESS
+              // ==========================================
+
+              const Text(
+                'Quick Access',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF16324F),
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: _QuickActionCard(
+                      icon:
+                      Icons.assignment_rounded,
+
+                      title: 'My Reports',
+
+                      subtitle:
+                      '${_submittedReports.length} submitted',
+
+                      color:
+                      const Color(0xFF42A5F5),
+
+                      onTap: _openMyReports,
+                    ),
+                  ),
+
+                  const SizedBox(width: 14),
+
+                  Expanded(
+                    child: _QuickActionCard(
+                      icon: Icons
+                          .admin_panel_settings_rounded,
+
+                      title: 'Admin View',
+
+                      subtitle:
+                      'Manage reports',
+
+                      color:
+                      const Color(0xFF26A69A),
+
+                      onTap: _openAdminView,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 30),
+
+              // ==========================================
+              // RECENT REPORTS
+              // ==========================================
+
+              Row(
+                mainAxisAlignment:
+                MainAxisAlignment.spaceBetween,
+
+                children: [
+                  const Text(
+                    'Recent Reports',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF16324F),
+                    ),
+                  ),
+
+                  if (_submittedReports
+                      .isNotEmpty)
+                    TextButton(
+                      onPressed:
+                      _openMyReports,
+
+                      child: const Text(
+                        'View all',
+                      ),
+                    ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              if (recentReports.isEmpty)
+                Container(
+                  width: double.infinity,
+
+                  padding:
+                  const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 30,
+                  ),
+
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+
+                    borderRadius:
+                    BorderRadius.circular(
+                      20,
+                    ),
+
+                    border: Border.all(
+                      color:
+                      const Color(0xFFE2EDF5),
+                    ),
+                  ),
+
+                  child: const Column(
+                    children: [
+                      Icon(
+                        Icons
+                            .assignment_outlined,
+                        size: 44,
+                        color:
+                        Color(0xFF90CAF9),
+                      ),
+
+                      SizedBox(height: 12),
+
+                      Text(
+                        'No reports yet',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight:
+                          FontWeight.w600,
+                          color:
+                          Color(0xFF16324F),
+                        ),
+                      ),
+
+                      SizedBox(height: 5),
+
+                      Text(
+                        'Your submitted reports will appear here.',
+                        textAlign:
+                        TextAlign.center,
+
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ...recentReports.map(
+                      (report) =>
+                      _RecentReportCard(
+                        report: report,
+                        onTap: _openMyReports,
+                      ),
+                ),
             ],
           ),
         ),
       ),
     );
+
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: color.withOpacity(0.18),
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 32,
+              color: color,
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+  }
+}
+
+class _QuickActionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _QuickActionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: const Color(0xFFE2EDF5),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: color,
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+  }
+}
+
+class _RecentReportCard extends StatelessWidget {
+  final ReportAnalysis report;
+  final VoidCallback onTap;
+
+  const _RecentReportCard({
+    required this.report,
+    required this.onTap,
+  });
+
+  Color _statusColor() {
+    switch (report.status) {
+      case 'Resolved':
+        return Colors.green;
+      case 'Under Review':
+        return Colors.blue;
+      default:
+        return Colors.orange;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _statusColor();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 6,
+        ),
+        tileColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(
+            color: Color(0xFFE2EDF5),
+          ),
+        ),
+        leading: CircleAvatar(
+          backgroundColor: const Color(0xFFE3F2FD),
+          child: const Icon(
+            Icons.location_on_rounded,
+            color: Color(0xFF42A5F5),
+          ),
+        ),
+        title: Text(
+          report.category,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: Text(
+          report.location,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 9,
+            vertical: 5,
+          ),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            report.status,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+
   }
 }
 
 // Displays the AI analysis result on a dedicated screen.
 class AnalysisResultScreen extends StatelessWidget {
   final ReportAnalysis analysis;
-  // Handles report submission and waits for local storage to complete.
+
   final Future<void> Function(ReportAnalysis) onSubmit;
-
-
 
   const AnalysisResultScreen({
     super.key,
@@ -483,8 +1134,21 @@ class AnalysisResultScreen extends StatelessWidget {
     required this.onSubmit,
   });
 
+  Color _severityColor() {
+    switch (analysis.severity) {
+      case 'High':
+        return Colors.red;
+      case 'Medium':
+        return Colors.orange;
+      default:
+        return Colors.green;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final severityColor = _severityColor();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -494,63 +1158,159 @@ class AnalysisResultScreen extends StatelessWidget {
           ),
         ),
       ),
+
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
+
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Category: ${analysis.category}',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+
+              // Header
+              Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+
+                child: const Column(
+                  children: [
+                    Icon(
+                      Icons.auto_awesome_rounded,
+                      size: 46,
+                      color: Color(0xFF64B5F6),
+                    ),
+
+                    SizedBox(height: 12),
+
+                    Text(
+                      'Issue Identified',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF16324F),
+                      ),
+                    ),
+
+                    SizedBox(height: 6),
+
+                    Text(
+                      'AI has analyzed your submitted image.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 22),
+
+              // Category
+              _resultCard(
+                icon: Icons.category_rounded,
+                title: 'Category',
+                value: analysis.category,
+              ),
+
+              const SizedBox(height: 12),
+
+              // Severity
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: const Color(0xFFE2EDF5),
+                  ),
+                ),
+
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: severityColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.warning_amber_rounded,
+                        color: severityColor,
+                      ),
+                    ),
+
+                    const SizedBox(width: 14),
+
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Severity',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey,
+                            ),
+                          ),
+
+                          const SizedBox(height: 4),
+
+                          Text(
+                            analysis.severity,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              color: severityColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
               const SizedBox(height: 12),
 
-              Text(
-                'Severity: ${analysis.severity}',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
+              // Description
+              _resultCard(
+                icon: Icons.description_rounded,
+                title: 'Description',
+                value: analysis.description,
               ),
 
               const SizedBox(height: 12),
 
-              Text(
-                'Description: ${analysis.description}',
-                style: const TextStyle(
-                  fontSize: 16,
-                ),
+              // Confidence
+              _resultCard(
+                icon: Icons.analytics_rounded,
+                title: 'AI Confidence',
+                value:
+                '${(analysis.confidence * 100).toStringAsFixed(0)}%',
               ),
 
               const SizedBox(height: 12),
 
-              Text(
-                'Confidence: ${(analysis.confidence * 100).toStringAsFixed(0)}%',
-                style: const TextStyle(
-                  fontSize: 16,
-                ),
+              // Location
+              _resultCard(
+                icon: Icons.location_on_rounded,
+                title: 'Location',
+                value: analysis.location,
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 26),
 
-              Text(
-                'Location: ${analysis.location}',
-                style: const TextStyle(
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Allows the user to review and edit AI-generated information.
+              // Edit button
               OutlinedButton.icon(
                 onPressed: () async {
-                  // Opens the edit screen and waits for the updated report.
-                  final updatedAnalysis = await Navigator.push<ReportAnalysis>(
+                  final updatedAnalysis =
+                  await Navigator.push<ReportAnalysis>(
                     context,
                     MaterialPageRoute(
                       builder: (context) => EditReportScreen(
@@ -559,12 +1319,12 @@ class AnalysisResultScreen extends StatelessWidget {
                     ),
                   );
 
-                  if (!context.mounted || updatedAnalysis == null) return;
+                  if (!context.mounted || updatedAnalysis == null) {
+                    return;
+                  }
 
-                  // Replaces the current result with the user's edited report.
                   Navigator.pushReplacement(
-
-                  context,
+                    context,
                     MaterialPageRoute(
                       builder: (context) => AnalysisResultScreen(
                         analysis: updatedAnalysis,
@@ -573,37 +1333,153 @@ class AnalysisResultScreen extends StatelessWidget {
                     ),
                   );
                 },
-                icon: const Icon(Icons.edit),
-                label: const Text('Edit Report'),
+
+                icon: const Icon(Icons.edit_rounded),
+
+                label: const Text(
+                  'Edit Report',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF42A5F5),
+                  side: const BorderSide(
+                    color: Color(0xFF64B5F6),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 15,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
               ),
+
               const SizedBox(height: 12),
 
-// Allows the user to submit the reviewed report.
+              // Submit button
               FilledButton.icon(
                 onPressed: () async {
-                  // Sends the reviewed report back to HomeScreen and waits for it to save.
                   await onSubmit(analysis);
 
                   if (!context.mounted) return;
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Report submitted successfully!'),
+                      content: Text(
+                        'Report submitted successfully!',
+                      ),
                     ),
                   );
                 },
 
-                icon: const Icon(Icons.send),
-                label: const Text('Submit Report'),
+                icon: const Icon(Icons.send_rounded),
+
+                label: const Text(
+                  'Submit Report',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF64B5F6),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
               ),
 
+              const SizedBox(height: 12),
+
+              const Text(
+                'Review the AI results before submitting your report.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+
+
+  }
+
+  Widget _resultCard({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE2EDF5),
+        ),
+      ),
+
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE3F2FD),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              icon,
+              color: const Color(0xFF42A5F5),
+            ),
+          ),
+
+          const SizedBox(width: 14),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey,
+                  ),
+                ),
+
+                const SizedBox(height: 5),
+
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF16324F),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+
   }
 }
+
 // Allows the user to review and edit the AI-generated report.
 class EditReportScreen extends StatefulWidget {
   final ReportAnalysis analysis;
@@ -627,7 +1503,6 @@ class _EditReportScreenState extends State<EditReportScreen> {
   void initState() {
     super.initState();
 
-    // Starts the editable fields with the AI-generated report data.
     _categoryController = TextEditingController(
       text: widget.analysis.category,
     );
@@ -643,6 +1518,8 @@ class _EditReportScreenState extends State<EditReportScreen> {
     _locationController = TextEditingController(
       text: widget.analysis.location,
     );
+
+
   }
 
   @override
@@ -653,13 +1530,11 @@ class _EditReportScreenState extends State<EditReportScreen> {
     _locationController.dispose();
 
     super.dispose();
+
+
   }
 
   void _saveChanges() {
-    // Creates the edited report while preserving important existing data.
-    //
-    // The report ID, status, confidence, image reference, and original
-    // report date/time are deliberately preserved.
     final updatedAnalysis = ReportAnalysis(
       id: widget.analysis.id,
       status: widget.analysis.status,
@@ -668,16 +1543,13 @@ class _EditReportScreenState extends State<EditReportScreen> {
       description: _descriptionController.text.trim(),
       confidence: widget.analysis.confidence,
       location: _locationController.text.trim(),
-
-      // Keeps the same photo attached when the citizen edits the report.
       imagePath: widget.analysis.imagePath,
-
-      // Keeps the original report creation time.
       dateTime: widget.analysis.dateTime,
     );
 
-    // Returns the edited report to the result screen.
     Navigator.pop(context, updatedAnalysis);
+
+
   }
 
   @override
@@ -691,108 +1563,200 @@ class _EditReportScreenState extends State<EditReportScreen> {
           ),
         ),
       ),
+
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
+
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Category',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+
+              // Header
+              Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+
+                child: const Column(
+                  children: [
+                    Icon(
+                      Icons.edit_note_rounded,
+                      size: 46,
+                      color: Color(0xFF64B5F6),
+                    ),
+
+                    SizedBox(height: 12),
+
+                    Text(
+                      'Review Your Report',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF16324F),
+                      ),
+                    ),
+
+                    SizedBox(height: 6),
+
+                    Text(
+                      'Review and update the information before submitting.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-              const SizedBox(height: 8),
+              const SizedBox(height: 24),
 
-              TextField(
+              _buildField(
                 controller: _categoryController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Enter issue category',
-                ),
+                label: 'Category',
+                hint: 'Enter issue category',
+                icon: Icons.category_rounded,
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
 
-              const Text(
-                'Severity',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              TextField(
+              _buildField(
                 controller: _severityController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Enter issue severity',
-                ),
+                label: 'Severity',
+                hint: 'Enter issue severity',
+                icon: Icons.warning_amber_rounded,
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
 
-              const Text(
-                'Description',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              TextField(
+              _buildField(
                 controller: _descriptionController,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Describe the issue',
-                  alignLabelWithHint: true,
-                ),
+                label: 'Description',
+                hint: 'Describe the issue',
+                icon: Icons.description_rounded,
+                maxLines: 5,
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
 
-              const Text(
-                'Location',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              TextField(
+              _buildField(
                 controller: _locationController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Enter issue location',
-                ),
+                label: 'Location',
+                hint: 'Enter issue location',
+                icon: Icons.location_on_rounded,
               ),
 
               const SizedBox(height: 28),
 
-              // Saves the user's reviewed report information.
+              // Save button
               FilledButton.icon(
                 onPressed: _saveChanges,
-                icon: const Icon(Icons.save),
-                label: const Text('Save Changes'),
+                icon: const Icon(Icons.save_rounded),
+                label: const Text(
+                  'Save Changes',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF64B5F6),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              const Text(
+                'Your changes will be reflected in the final report.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+
+
+  }
+
+  Widget _buildField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    int maxLines = 1,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF16324F),
+          ),
+        ),
+
+        const SizedBox(height: 8),
+
+        TextField(
+          controller: controller,
+          maxLines: maxLines,
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Padding(
+              padding: EdgeInsets.only(
+                bottom: maxLines > 1 ? 70 : 0,
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF64B5F6),
+              ),
+            ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 16,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(
+                color: Color(0xFFE2EDF5),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(
+                color: Color(0xFF64B5F6),
+                width: 2,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+
   }
 }
-
 
 // Displays reports submitted by the user.
 // Displays reports submitted by the citizen.
@@ -810,10 +1774,29 @@ class MyReportsScreen extends StatefulWidget {
   State<MyReportsScreen> createState() => _MyReportsScreenState();
 }
 
-// Manages the My Reports screen.
-// Citizens can view their submitted reports and current status,
-// but they cannot change the status from this screen.
 class _MyReportsScreenState extends State<MyReportsScreen> {
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'Resolved':
+        return Colors.green;
+      case 'Under Review':
+        return const Color(0xFF42A5F5);
+      default:
+        return Colors.orange;
+    }
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status) {
+      case 'Resolved':
+        return Icons.check_circle_rounded;
+      case 'Under Review':
+        return Icons.hourglass_top_rounded;
+      default:
+        return Icons.pending_rounded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -825,76 +1808,349 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
           ),
         ),
       ),
+
       body: SafeArea(
         child: widget.reports.isEmpty
-            ? const Center(
-          child: Text('No reports submitted yet.'),
-        )
-            : ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: widget.reports.length,
-          itemBuilder: (context, index) {
-            final report = widget.reports[index];
-
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: ListTile(
-                onTap: () async {
-                  // Opens report details in citizen view.
-                  // No status-changing callback is passed here,
-                  // so citizens can only view the report.
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ReportDetailsScreen(
-                        report: report,
-                      ),
-                    ),
-                  );
-
-                  // Refreshes My Reports after returning.
-                  setState(() {});
-                },
-                title: Text(report.category),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${report.severity} • ${report.location}',
-                    ),
-                    const SizedBox(height: 6),
-
-                    // The citizen can see the current status.
-                    // Status changes are handled only by Admin View.
-                    Chip(
-                      label: Text(report.status),
-                      backgroundColor: report.status == 'Resolved'
-                          ? Colors.green.shade100
-                          : report.status == 'Under Review'
-                          ? Colors.blue.shade100
-                          : Colors.orange.shade100,
-                      labelStyle: TextStyle(
-                        color: report.status == 'Resolved'
-                            ? Colors.green.shade800
-                            : report.status == 'Under Review'
-                            ? Colors.blue.shade800
-                            : Colors.orange.shade800,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ],
-                ),
-                trailing: const Icon(Icons.chevron_right),
+            ? _buildEmptyState()
+            : ListView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(24),
               ),
-            );
-          },
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF64B5F6),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(
+                      Icons.assignment_rounded,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                  ),
+
+                  const SizedBox(width: 16),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Your Reports',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF16324F),
+                          ),
+                        ),
+
+                        const SizedBox(height: 4),
+
+                        Text(
+                          '${widget.reports.length} '
+                              '${widget.reports.length == 1 ? 'report' : 'reports'} submitted',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            const Text(
+              'Submitted Issues',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF16324F),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            ...widget.reports.reversed.map(
+                  (report) => _buildReportCard(
+                context,
+                report,
+              ),
+            ),
+          ],
         ),
       ),
     );
+
+
+  }
+
+  Widget _buildReportCard(
+      BuildContext context,
+      ReportAnalysis report,
+      ) {
+    final statusColor = _statusColor(report.status);
+    final statusIcon = _statusIcon(report.status);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFE2EDF5),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ReportDetailsScreen(
+                report: report,
+              ),
+            ),
+          );
+
+          if (mounted) {
+            setState(() {});
+          }
+        },
+
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              // Top row
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE3F2FD),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(
+                      Icons.location_on_rounded,
+                      color: Color(0xFF42A5F5),
+                      size: 28,
+                    ),
+                  ),
+
+                  const SizedBox(width: 14),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          report.category,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF16324F),
+                          ),
+                        ),
+
+                        const SizedBox(height: 5),
+
+                        Text(
+                          report.location,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.grey,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              const Divider(
+                height: 1,
+                color: Color(0xFFEFF3F6),
+              ),
+
+              const SizedBox(height: 14),
+
+              // Severity + status
+              Row(
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          size: 18,
+                          color: Colors.orange,
+                        ),
+
+                        const SizedBox(width: 6),
+
+                        Text(
+                          'Severity: ${report.severity}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          statusIcon,
+                          size: 15,
+                          color: statusColor,
+                        ),
+
+                        const SizedBox(width: 5),
+
+                        Text(
+                          report.status,
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(30),
+
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: const Icon(
+                Icons.assignment_outlined,
+                size: 52,
+                color: Color(0xFF64B5F6),
+              ),
+            ),
+
+            const SizedBox(height: 22),
+
+            const Text(
+              'No Reports Yet',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF16324F),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            const Text(
+              'When you report a civic issue, '
+                  'your submitted reports will appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color: Colors.black54,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text(
+                'Report an issue from the Home screen',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF1976D2),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+
   }
 }
-
 
 // Displays the full details of a submitted report.
 //
@@ -914,8 +2170,44 @@ class ReportDetailsScreen extends StatelessWidget {
     required this.report,
   });
 
+  Color _statusColor() {
+    switch (report.status) {
+      case 'Resolved':
+        return Colors.green;
+      case 'Under Review':
+        return const Color(0xFF42A5F5);
+      default:
+        return Colors.orange;
+    }
+  }
+
+  IconData _statusIcon() {
+    switch (report.status) {
+      case 'Resolved':
+        return Icons.check_circle_rounded;
+      case 'Under Review':
+        return Icons.hourglass_top_rounded;
+      default:
+        return Icons.pending_rounded;
+    }
+  }
+
+  Color _severityColor() {
+    switch (report.severity) {
+      case 'High':
+        return Colors.red;
+      case 'Medium':
+        return Colors.orange;
+      default:
+        return Colors.green;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final statusColor = _statusColor();
+    final severityColor = _severityColor();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -925,95 +2217,401 @@ class ReportDetailsScreen extends StatelessWidget {
           ),
         ),
       ),
+
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
           children: [
-            // Displays the original submitted photo.
+
+            // Report image
             if (report.imagePath.isNotEmpty) ...[
               ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(22),
                 child: Image.file(
                   File(report.imagePath),
-                  height: 220,
+                  height: 240,
                   width: double.infinity,
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) {
                     return Container(
-                      height: 220,
-                      color: Colors.grey.shade200,
+                      height: 240,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE3F2FD),
+                        borderRadius: BorderRadius.circular(22),
+                      ),
                       alignment: Alignment.center,
-                      child: const Text(
-                        'Report photo is no longer available.',
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.image_not_supported_outlined,
+                            size: 44,
+                            color: Color(0xFF64B5F6),
+                          ),
+
+                          SizedBox(height: 10),
+
+                          Text(
+                            'Report photo is no longer available.',
+                            style: TextStyle(
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
                       ),
                     );
                   },
                 ),
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 22),
             ],
 
-            Text(
-              report.category,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-
-            const SizedBox(height: 16),
-
-            Text(
-              'Severity: ${report.severity}',
-            ),
-
-            const SizedBox(height: 12),
-
-            // Status is read-only on the citizen side.
-            // Only Admin View can change it.
-            InputDecorator(
-              decoration: const InputDecoration(
-                labelText: 'Status',
-                border: OutlineInputBorder(),
+            // Category header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(22),
               ),
+
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(13),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF64B5F6),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: const Icon(
+                      Icons.location_on_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+
+                  const SizedBox(width: 14),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Reported Issue',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+
+                        const SizedBox(height: 4),
+
+                        Text(
+                          report.category,
+                          style: const TextStyle(
+                            fontSize: 23,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF16324F),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            // Status and severity
+            Row(
+              children: [
+                Expanded(
+                  child: _infoCard(
+                    icon: _statusIcon(),
+                    title: 'Status',
+                    value: report.status,
+                    color: statusColor,
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: _infoCard(
+                    icon: Icons.warning_amber_rounded,
+                    title: 'Severity',
+                    value: report.severity,
+                    color: severityColor,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 18),
+
+            // Description
+            _detailCard(
+              icon: Icons.description_rounded,
+              title: 'Description',
               child: Text(
-                report.status,
+                report.description,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  height: 1.5,
+                  color: Color(0xFF16324F),
                 ),
               ),
             ),
 
             const SizedBox(height: 12),
 
-            Text(
-              'Description: ${report.description}',
+            // Location
+            _detailCard(
+              icon: Icons.location_on_rounded,
+              title: 'Location',
+              child: Text(
+                report.location,
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.4,
+                  color: Color(0xFF16324F),
+                ),
+              ),
             ),
 
             const SizedBox(height: 12),
 
-            Text(
-              'Location: ${report.location}',
+            // AI confidence
+            _detailCard(
+              icon: Icons.auto_awesome_rounded,
+              title: 'AI Confidence',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${(report.confidence * 100).toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF16324F),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: report.confidence,
+                      minHeight: 8,
+                      backgroundColor: const Color(0xFFE3F2FD),
+                      valueColor:
+                      const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF64B5F6),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 12),
 
-            Text(
-              'Confidence: '
-                  '${(report.confidence * 100).toStringAsFixed(0)}%',
+            // Report date
+            _detailCard(
+              icon: Icons.calendar_today_rounded,
+              title: 'Reported On',
+              child: Text(
+                _formatDate(report.dateTime),
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF16324F),
+                ),
+              ),
             ),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 22),
 
-            // Shows when the report was originally created.
-            Text(
-              'Reported: ${report.dateTime.toLocal()}',
+            // Read-only notice
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F9FC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFFE2EDF5),
+                ),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: Color(0xFF64B5F6),
+                  ),
+
+                  SizedBox(width: 10),
+
+                  Expanded(
+                    child: Text(
+                      'Report status is managed by the administrator. '
+                          'You can view the latest status here.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.5,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
+
+
+  }
+
+  Widget _infoCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE2EDF5),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(
+              icon,
+              color: color,
+              size: 21,
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+            ),
+          ),
+
+          const SizedBox(height: 4),
+
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+
+
+  }
+
+  Widget _detailCard({
+    required IconData icon,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE2EDF5),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F2FD),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  icon,
+                  color: const Color(0xFF42A5F5),
+                  size: 20,
+                ),
+              ),
+
+              const SizedBox(width: 10),
+
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF16324F),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          child,
+        ],
+      ),
+    );
+
+
+  }
+
+  String _formatDate(DateTime dateTime) {
+    final local = dateTime.toLocal();
+
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final year = local.year.toString();
+
+    final hour = local.hour == 0
+        ? 12
+        : local.hour > 12
+        ? local.hour - 12
+        : local.hour;
+
+    final minute = local.minute.toString().padLeft(2, '0');
+
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+
+    return '$day/$month/$year • $hour:$minute $period';
+
+
   }
 }
-
 
 // Displays the authority/admin workflow.
 //
@@ -1043,14 +2641,34 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
   void initState() {
     super.initState();
 
-    // Creates a local copy so the Admin screen can update immediately.
     _reports = List<ReportAnalysis>.from(widget.reports);
+
+    _sortReports();
+  }
+
+  // Sorts reports by priority:
+  // High -> Medium -> Low
+  // Newest reports appear first within the same severity.
+  void _sortReports() {
+    const severityPriority = {
+      'High': 0,
+      'Medium': 1,
+      'Low': 2,
+    };
+
+    _reports.sort((a, b) {
+      final severityA = severityPriority[a.severity] ?? 3;
+      final severityB = severityPriority[b.severity] ?? 3;
+
+      if (severityA != severityB) {
+        return severityA.compareTo(severityB);
+      }
+
+      return b.dateTime.compareTo(a.dateTime);
+    });
   }
 
   // Changes the report status while preserving all existing report data.
-  //
-  // The report ID, image reference, and original date/time remain
-  // unchanged when an admin updates only the status.
   Future<void> _changeStatus(
       ReportAnalysis report,
       String newStatus,
@@ -1063,20 +2681,14 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
       description: report.description,
       confidence: report.confidence,
       location: report.location,
-
-      // Keeps the original submitted photo attached to the report.
       imagePath: report.imagePath,
-
-      // Keeps the original report creation time.
       dateTime: report.dateTime,
     );
 
-    // Saves the updated report through HomeScreen.
     await widget.onStatusChanged(updatedReport);
 
     if (!mounted) return;
 
-    // Updates the Admin screen immediately after saving.
     setState(() {
       final index = _reports.indexWhere(
             (existingReport) => existingReport.id == updatedReport.id,
@@ -1085,7 +2697,33 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
       if (index != -1) {
         _reports[index] = updatedReport;
       }
+
+      _sortReports();
     });
+  }
+
+  Color _severityColor(String severity) {
+    switch (severity.toLowerCase()) {
+      case 'high':
+        return Colors.red;
+      case 'medium':
+        return Colors.orange;
+      case 'low':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'Resolved':
+        return Colors.green;
+      case 'Under Review':
+        return Colors.blue;
+      default:
+        return Colors.orange;
+    }
   }
 
   @override
@@ -1110,27 +2748,36 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
           itemBuilder: (context, index) {
             final report = _reports[index];
 
+            final severityColor =
+            _severityColor(report.severity);
+
+            final statusColor =
+            _statusColor(report.status);
+
             return Card(
               margin: const EdgeInsets.only(bottom: 16),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.stretch,
                   children: [
-                    // Displays the submitted photo in Admin View.
+                    // Report photo
                     if (report.imagePath.isNotEmpty) ...[
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius:
+                        BorderRadius.circular(14),
                         child: Image.file(
                           File(report.imagePath),
                           height: 180,
                           width: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (
-                              context,
-                              error,
-                              stackTrace,
-                              ) {
+                          errorBuilder:
+                              (context, error, stackTrace) {
                             return Container(
                               height: 180,
                               color: Colors.grey.shade200,
@@ -1142,41 +2789,146 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
                           },
                         ),
                       ),
-
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
                     ],
 
-                    Text(
-                      report.category,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    // Category + severity
+                    Row(
+                      crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            report.category,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                              fontWeight:
+                              FontWeight.bold,
+                            ),
+                          ),
+                        ),
+
+                        Container(
+                          padding:
+                          const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: severityColor
+                                .withOpacity(0.1),
+                            borderRadius:
+                            BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            report.severity,
+                            style: TextStyle(
+                              color: severityColor,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 18,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            report.location,
+                            style: const TextStyle(
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
 
                     const SizedBox(height: 8),
 
-                    Text(
-                      '${report.severity} • ${report.location}',
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    Text(
-                      'Reported: ${report.dateTime.toLocal()}',
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.access_time_rounded,
+                          size: 18,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            'Reported: '
+                                '${report.dateTime.toLocal()}',
+                            style: const TextStyle(
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
 
                     const SizedBox(height: 12),
 
                     Text(
                       report.description,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
                     ),
 
                     const SizedBox(height: 16),
 
-                    // Admin/authority can change the report status.
+                    // Current status
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.08),
+                        borderRadius:
+                        BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            color: statusColor,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Current Status: ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                          Text(
+                            report.status,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Admin status control
                     DropdownButtonFormField<String>(
                       initialValue: report.status,
                       decoration: const InputDecoration(
@@ -1212,6 +2964,523 @@ class _AdminViewScreenState extends State<AdminViewScreen> {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _AdminInfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _AdminInfoChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: color,
+            size: 21,
+          ),
+
+          const SizedBox(width: 8),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+
+                const SizedBox(height: 2),
+
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class AboutMeScreen extends StatelessWidget {
+  const AboutMeScreen({super.key});
+
+  static const Color primaryBlue = Color(0xFF42A5F5);
+  static const Color lightBlue = Color(0xFFEAF6FF);
+  static const Color darkText = Color(0xFF16324F);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'About the Team',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
+
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            // ==========================================
+            // TEAM HEADER
+            // ==========================================
+
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF42A5F5),
+                    Color(0xFF64B5F6),
+                  ],
+
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+
+                borderRadius: BorderRadius.circular(26),
+
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryBlue.withOpacity(0.20),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+
+              child: Column(
+                children: [
+
+                  // Team icon
+                  Container(
+                    width: 82,
+                    height: 82,
+
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.20),
+                      shape: BoxShape.circle,
+                    ),
+
+                    child: const Icon(
+                      Icons.groups_rounded,
+                      color: Colors.white,
+                      size: 44,
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  const Text(
+                    'FixMyCity Team',
+                    textAlign: TextAlign.center,
+
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  const Text(
+                    'Working together to make civic reporting '
+                        'smarter, faster and easier.',
+                    textAlign: TextAlign.center,
+
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 30),
+
+            // ==========================================
+            // OUR TEAM
+            // ==========================================
+
+            const Text(
+              'Our Team',
+
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+                color: darkText,
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
+            Text(
+              'Meet the people behind FixMyCity.',
+
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Muhammad Safi
+            _teamMemberCard(
+              name: 'Muhammad Safi',
+              role: 'Team Leader • AI API Development',
+              icon: Icons.psychology_rounded,
+            ),
+
+            const SizedBox(height: 12),
+
+            // Alishba Khan
+            _teamMemberCard(
+              name: 'Alishba Khan',
+              role: 'Presentation • Documentation',
+              icon: Icons.description_rounded,
+            ),
+
+            const SizedBox(height: 12),
+
+            // Hoor Aina
+            _teamMemberCard(
+              name: 'Hoor Aina',
+              role: 'Application Development',
+              icon: Icons.phone_android_rounded,
+            ),
+
+            const SizedBox(height: 12),
+
+            // Safa Hanif
+            _teamMemberCard(
+              name: 'Safa Hanif',
+              role: 'Testing • Software Quality Assurance',
+              icon: Icons.verified_rounded,
+            ),
+
+            const SizedBox(height: 30),
+
+            // ==========================================
+            // ABOUT PROJECT
+            // ==========================================
+
+            const Text(
+              'About FixMyCity',
+
+              style: TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+                color: darkText,
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            _AboutCard(
+              icon: Icons.auto_awesome_rounded,
+              title: 'AI-Powered Reporting',
+              text:
+              'FixMyCity uses AI to analyze images and identify '
+                  'common road and civic issues.',
+            ),
+
+            const SizedBox(height: 12),
+
+            _AboutCard(
+              icon: Icons.camera_alt_rounded,
+              title: 'Simple Reporting',
+              text:
+              'Users can take or select a photo of an issue and '
+                  'submit it for analysis in just a few steps.',
+            ),
+
+            const SizedBox(height: 12),
+
+            _AboutCard(
+              icon: Icons.location_on_rounded,
+              title: 'Built for Communities',
+              text:
+              'The application helps citizens highlight problems '
+                  'in their surroundings and contribute to better cities.',
+            ),
+
+            const SizedBox(height: 30),
+
+            // ==========================================
+            // FOOTER
+            // ==========================================
+
+            Center(
+              child: Column(
+                children: [
+
+                  Icon(
+                    Icons.location_city_rounded,
+                    color: primaryBlue.withOpacity(0.7),
+                    size: 28,
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  const Text(
+                    'FixMyCity',
+
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: darkText,
+                    ),
+                  ),
+
+                  const SizedBox(height: 4),
+
+                  Text(
+                    'Report. Improve. Connect.',
+
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // TEAM MEMBER CARD
+  // ==========================================
+
+  Widget _teamMemberCard({
+    required String name,
+    required String role,
+    required IconData icon,
+  }) {
+    return Container(
+      width: double.infinity,
+
+      padding: const EdgeInsets.all(16),
+
+      decoration: BoxDecoration(
+        color: Colors.white,
+
+        borderRadius: BorderRadius.circular(18),
+
+        border: Border.all(
+          color: const Color(0xFFE2EDF5),
+        ),
+
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+
+      child: Row(
+        children: [
+
+          // Icon
+          Container(
+            width: 54,
+            height: 54,
+
+            decoration: BoxDecoration(
+              color: lightBlue,
+              borderRadius: BorderRadius.circular(16),
+            ),
+
+            child: const Icon(
+              Icons.person_rounded,
+              color: primaryBlue,
+              size: 28,
+            ),
+          ),
+
+          const SizedBox(width: 15),
+
+          // Name + role
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+
+              children: [
+
+                Text(
+                  name,
+
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: darkText,
+                  ),
+                ),
+
+                const SizedBox(height: 5),
+
+                Text(
+                  role,
+
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.3,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Small role icon
+          Icon(
+            icon,
+            color: primaryBlue.withOpacity(0.75),
+            size: 22,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class _AboutCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String text;
+
+  const _AboutCard({
+    required this.icon,
+    required this.title,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+
+      padding: const EdgeInsets.all(18),
+
+      decoration: BoxDecoration(
+        color: Colors.white,
+
+        borderRadius: BorderRadius.circular(18),
+
+        border: Border.all(
+          color: const Color(0xFFE2EDF5),
+        ),
+      ),
+
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+
+        children: [
+
+          // Icon
+          Container(
+            width: 46,
+            height: 46,
+
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF6FF),
+              borderRadius: BorderRadius.circular(14),
+            ),
+
+            child: Icon(
+              icon,
+              color: const Color(0xFF42A5F5),
+              size: 23,
+            ),
+          ),
+
+          const SizedBox(width: 14),
+
+          // Text
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+
+              children: [
+
+                Text(
+                  title,
+
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF16324F),
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+
+                Text(
+                  text,
+
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.5,
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
